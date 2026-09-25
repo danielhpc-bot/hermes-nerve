@@ -175,20 +175,60 @@ def _bounded_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def infer_tool_risk(tool_name: str, status: str = "") -> tuple[float, list[str]]:
+def infer_tool_risk(tool_name: str, status: str = "", description: str = "") -> tuple[float, list[str]]:
     name = (tool_name or "").lower()
     reasons: list[str] = []
     if status.lower() in {"error", "failed", "blocked", "failure"}:
         reasons.append("tool-failure")
         return 0.72, reasons
-    if any(token in name for token in MUTATING_HINTS):
+    mutating_hit = any(token in name for token in MUTATING_HINTS)
+    readonly_hit = any(token in name for token in READ_ONLY_HINTS)
+    if mutating_hit and not readonly_hit:
         reasons.append("mutating-tool")
         return 0.68, reasons
-    if any(token in name for token in READ_ONLY_HINTS):
+    if readonly_hit and not mutating_hit:
         reasons.append("read-only-tool")
         return 0.10, reasons
+    # Hints inconclusive (no hit, or both — e.g. "read_and_apply_patch",
+    # "catalog_publish" matching "cat"). Fall back to a TypeSafe Noul
+    # judgment; never block on network failure.
+    reasons.append("hints-inconclusive")
+    judged = _judged_tool_risk(tool_name, description)
+    if judged is not None:
+        probability, judgment_reason = judged
+        reasons.append(judgment_reason)
+        return probability, reasons
     reasons.append("unknown-tool-risk")
     return 0.36, reasons
+
+
+from .judgment_constants import IS_MUTATING as _IS_MUTATING_QUESTION
+
+
+def _judged_tool_risk(tool_name: str, description: str) -> tuple[float, str] | None:
+    """Ask a TypeSafe Noul whether the tool mutates persistent state.
+
+    Returns ``(risk, reason)`` or ``None`` when the provider is unavailable.
+    Constants live in ``judgment_constants`` for review.
+    """
+    from .judgment_constants import MUTATING_THRESHOLD, READ_ONLY_THRESHOLD
+    from .client import JevClient
+
+    try:
+        client = JevClient(provider="openrouter")
+        response = client.system_one(
+            state={"tool": tool_name, "description": description or tool_name},
+            questions={"is_mutating": dict(_IS_MUTATING_QUESTION)},
+        )
+        raw = response.answers.get("is_mutating") or {}
+        probability = float(raw.get("noul", 0.0))
+    except Exception:
+        return None
+    if probability >= MUTATING_THRESHOLD:
+        return 0.68, f"noul-mutating({probability:.2f})"
+    if probability <= READ_ONLY_THRESHOLD:
+        return 0.10, f"noul-readonly({probability:.2f})"
+    return 0.36, f"noul-uncertain({probability:.2f})"
 
 
 def assess_event(

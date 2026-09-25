@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import RunIdentity, WorkEvent
+from ..judgment_constants import SUITE_PASSED as _SUITE_PASSED_QUESTION
 
 _SAFE_TEST_PREFIXES = (
     ("python", "-m", "pytest"),
@@ -40,7 +41,37 @@ def _terminal_exit(result: Any, kwargs: dict[str, Any]) -> tuple[int | None, str
         return 1, text
     if re.search(r"\b\d+ passed\b", low) and " failed" not in low:
         return 0, text
+    # Regex evidence ambiguous: cascade to a TypeSafe Noul judgment
+    # (constants in judgment_constants). Never blocks on provider failure.
+    judged = _judged_suite_passed(low)
+    if judged is not None:
+        return judged, text
     return None, text
+
+
+def _judged_suite_passed(low_text: str) -> int | None:
+    """Ask TypeSafe whether an ambiguous test output ultimately passed.
+
+    Returns 0/1, or ``None`` when the provider is unavailable or the
+    judgment stays inside the uncertainty band.
+    """
+    from ..judgment_constants import SUITE_FAIL_THRESHOLD, SUITE_PASS_THRESHOLD
+    from ..client import JevClient
+    try:
+        client = JevClient(provider="openrouter")
+        response = client.system_one(
+            state={"output": low_text[:4000]},
+            questions={"suite_passed": dict(_SUITE_PASSED_QUESTION)},
+        )
+        raw = response.answers.get("suite_passed") or {}
+        probability = float(raw.get("noul", 0.0))
+    except Exception:
+        return None
+    if probability >= SUITE_PASS_THRESHOLD:
+        return 0
+    if probability <= SUITE_FAIL_THRESHOLD:
+        return 1
+    return None
 
 
 def observe_test_result(supervisor, identity: RunIdentity, *, tool_name: str, args: dict[str, Any], result: Any, kwargs: dict[str, Any]) -> dict[str, Any]:

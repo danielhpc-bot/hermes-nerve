@@ -220,3 +220,35 @@ class DecisionEngine:
             },
             contract=contract,
         )
+
+    def verify_decomposed(self, *, state: Any, contract: str = "verify/v1") -> dict[str, Any]:
+        """Verify a worker outcome with three independent Noul heads instead of one
+        merged choice. One request; the verdict is derived in code from P(yes) values
+        via ``verify_constants.verdict_from``. Returns the assess payload plus the
+        derived ``verdict`` and ``verdict_strength`` (verify/v1-compatible labels)."""
+        from .verify_constants import QUESTIONS, verdict_from
+
+        result = self.assess(state=state, questions=QUESTIONS, contract=contract)
+        answers = result["answers"]
+
+        def _p(name: str) -> float:
+            raw = answers.get(name) or {}
+            try:
+                return float(raw.get("noul", 0.0))
+            except (TypeError, ValueError):
+                return 0.0
+
+        p_evidence = _p("evidence_sufficient")
+        p_approach = _p("approach_viable")
+        p_human = _p("needs_human")
+        verdict, strength = verdict_from(p_evidence, p_approach, p_human)
+        return {
+            **result,
+            "verdict": verdict,
+            "verdict_strength": round(strength, 6),
+            "noul": {
+                "evidence_sufficient": round(p_evidence, 6),
+                "approach_viable": round(p_approach, 6),
+                "needs_human": round(p_human, 6),
+            },
+        }
