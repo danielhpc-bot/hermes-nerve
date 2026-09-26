@@ -55,12 +55,12 @@ class EngineTests(unittest.TestCase):
         value = {
             "api_key": "abc",
             "nested": {"token": "secret", "vendor_api_key": "vendor-secret"},
-            "text": "[REDACTED]",
+            "text": "Bearer abcdefghijklmnop",
             "slack": "xoxb-1234567890-abcdefghijkl",
-            "aws": "[REDACTED]",
+            "aws": "AKIA1234567890ABCDEF",
             "jwt": "eyJabcdefghijk.abcdefghijk.abcdefghijk",
-            "query": "https://example.test/cb?[REDACTED]&ok=1",
-            "pem": "[REDACTED]\nabc123\n-----END PRIVATE KEY-----",
+            "query": "https://example.test/cb?token=super-secret-value&ok=1",
+            "pem": "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----",
         }
         safe = privacy.redact(value)
         self.assertEqual(safe["api_key"], "[REDACTED]")
@@ -68,7 +68,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(safe["nested"]["vendor_api_key"], "[REDACTED]")
         self.assertNotIn("abcdefghijklmnop", safe["text"])
         self.assertNotIn("xoxb-", safe["slack"])
-        self.assertNotIn("[REDACTED]", safe["aws"])
+        self.assertNotIn("AKIA1234567890ABCDEF", safe["aws"])
         self.assertNotIn("eyJabcdefghijk", safe["jwt"])
         self.assertNotIn("super-secret-value", safe["query"])
         self.assertNotIn("abc123", safe["pem"])
@@ -383,7 +383,7 @@ class ToolTests(unittest.TestCase):
     def test_rehydrate_is_local_and_uses_ledger(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"HERMES_NERVE_CONTEXT_LEDGER": str(Path(td) / "ledger.jsonl")}, clear=False):
             ledger.configure(enabled=True, detail="sanitized")
-            ledger.record_evidence(evidence_id="e1", content="[REDACTED] useful", kind="tool_result", recoverable=True)
+            ledger.record_evidence(evidence_id="e1", content="Bearer abcdefghijklmnop useful", kind="tool_result", recoverable=True)
             payload = json.loads(tools.nerve_context_rehydrate({"evidence_id": "e1"}))
             self.assertTrue(payload["ok"])
             self.assertIn("[REDACTED]", payload["rehydrated"]["content"])
@@ -832,7 +832,7 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             ledger.observe_tool_call(
                 tool_name="terminal",
                 args={"command": "git status --short"},
-                result="[REDACTED]\n M file.py",
+                result="Bearer abcdefghijklmnop\n M file.py",
                 task_id="t1",
                 duration_ms=12,
             )

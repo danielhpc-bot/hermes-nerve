@@ -8,7 +8,7 @@ Dev16 starts from the finalized dev15 controller-completion build and incorporat
 
 ### 1. "How many tokens should this take?" is now locked into the DoD
 
-For automatically bound Kanban tasks, Jev estimates a conservative worker[REDACTED] from the structured Definition of Done before the first worker model call. The default estimator is local and free:
+For automatically bound Kanban tasks, Jev estimates a conservative worker-token target from the structured Definition of Done before the first worker model call. The default estimator is local and free:
 
 ```text
 estimate = safety_multiplier * (
@@ -27,7 +27,7 @@ Defaults:
 - floor: `work_default_task_budget_tokens` (70k)
 - cap: 2,000,000
 
-The estimator rounds to 10k for stable, readable contracts. The frozen 8-criterion event-delivery benchmark used in the dev14 A/B produces a **960,000[REDACTED]
+The estimator rounds to 10k for stable, readable contracts. The frozen 8-criterion event-delivery benchmark used in the dev14 A/B produces a **960,000-token target**.
 
 Jev appends a required `DOD-BUDGET` criterion. It is controller-verifiable and cannot be waived by worker prose. A small default completion tolerance (`1.10x`) avoids false failures from normal estimate noise. With the frozen benchmark that gives a completion ceiling of **1,056,000 accounted worker tokens**.
 
@@ -147,4 +147,4 @@ The following checklist describes the original frozen event-delivery / Solar Pro
 - native completion attempts;
 - terminal outcome.
 
-The release target is not merely lower mean token use. The primary dev16 target is **tail compression**: no multi-million[REDACTED] spiral, no false-positive kill of a healthy run near the estimated budget, and zero model calls after verified PASS.
+The release target is not merely lower mean token use. The primary dev16 target is **tail compression**: no multi-million-token lifecycle spiral, no false-positive kill of a healthy run near the estimated budget, and zero model calls after verified PASS.
