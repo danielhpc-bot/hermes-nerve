@@ -658,6 +658,16 @@ class GateTests(unittest.TestCase):
 
 
 class RegistrationTests(unittest.TestCase):
+    def setUp(self):
+        # These tests exercise the controller/non-headless registration surface.
+        env = patch.dict(
+            os.environ,
+            {"HERMES_KANBAN_TASK": "", "HERMES_KANBAN_TASK_ID": ""},
+            clear=False,
+        )
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_registers_vnext_tools_hooks_context_engine_and_config(self):
         root = Path(__file__).resolve().parents[1]
         spec = importlib.util.spec_from_file_location("hermes_nerve_plugin", root / "__init__.py", submodule_search_locations=[str(root)])
@@ -840,6 +850,60 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             plugin.mkdir(parents=True)
             inferred = paths.report_home(plugin)
             self.assertEqual(inferred, Path(td) / ".hermes" / "profiles" / "muna")
+
+    def test_profile_report_home_uses_deepest_profile_inside_profile_scratch(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            outer = Path(td) / ".hermes" / "profiles" / "freebrain" / "cache" / "scratch" / "tmp"
+            plugin = outer / ".hermes" / "profiles" / "muna" / "plugins" / "hermes-nerve"
+            plugin.mkdir(parents=True)
+            (plugin / "plugin.yaml").write_text("name: hermes-nerve\n")
+            inferred = paths.report_home(plugin)
+            self.assertEqual(inferred, outer / ".hermes" / "profiles" / "muna")
+
+    def test_profile_report_home_ignores_nested_vendor_profiles_directory(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            profile = Path(td) / ".hermes" / "profiles" / "muna"
+            plugin = profile / "plugins" / "hermes-nerve"
+            nested = plugin / "vendor" / "profiles" / "not-a-hermes-profile"
+            nested.mkdir(parents=True)
+            inferred = paths.report_home(nested)
+            self.assertEqual(inferred, profile)
+
+    def test_profile_report_home_ignores_unmarked_nested_dot_hermes_profile(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            profile = Path(td) / ".hermes" / "profiles" / "muna"
+            plugin = profile / "plugins" / "hermes-nerve"
+            nested = plugin / "node_modules" / ".hermes" / "profiles" / "evil"
+            nested.mkdir(parents=True)
+            inferred = paths.report_home(nested)
+            self.assertEqual(inferred, profile)
+
+    def test_profile_report_home_does_not_infer_unrelated_profiles_directory(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            unrelated = Path(td) / "repo" / "profiles" / "dev" / "plugins" / "hermes-nerve"
+            unrelated.mkdir(parents=True)
+            self.assertIsNone(paths.infer_profile_home_from_path(unrelated))
+
+    def test_profile_report_home_does_not_infer_nonexistent_profile(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            ghost = Path(td) / ".hermes" / "profiles" / "ghost" / "plugins" / "hermes-nerve"
+            self.assertIsNone(paths.infer_profile_home_from_path(ghost))
+
+    def test_profile_report_home_accepts_existing_fresh_default_root_profile(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            profile = Path(td) / ".hermes" / "profiles" / "brandnew"
+            profile.mkdir(parents=True)
+            self.assertEqual(paths.infer_profile_home_from_path(profile), profile)
+            self.assertEqual(paths.report_home(profile), profile)
+
+    def test_profile_report_home_accepts_marked_alternate_root_profile(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            profile = Path(td) / "hermesdata" / "profiles" / "muna"
+            plugin = profile / "plugins" / "hermes-nerve"
+            plugin.mkdir(parents=True)
+            (plugin / "plugin.yaml").write_text("name: hermes-nerve\n")
+            self.assertEqual(paths.infer_profile_home_from_path(plugin), profile)
+            self.assertEqual(paths.report_home(plugin), profile)
 
     def test_receipt_report_aggregates_cost_tokens_and_contracts(self):
         with tempfile.TemporaryDirectory() as td:

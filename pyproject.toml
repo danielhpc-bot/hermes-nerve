@@ -8,9 +8,16 @@ license = {text = "MIT"}
 authors = [{name = "KeelTrace community"}]
 dependencies = []
 
+[project.scripts]
+nerve = "hermes_nerve.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/keeltrace/hermes-nerve"
 Issues = "https://github.com/keeltrace/hermes-nerve/issues"
+
+[tool.setuptools.packages.find]
+include = ["hermes_nerve*", "hermes_jev*"]
+exclude = ["tests*", "review*", "planning*", "contracts*", "packaging*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

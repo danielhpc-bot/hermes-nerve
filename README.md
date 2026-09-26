@@ -121,10 +121,10 @@ Verify the package before a live run:
 bash scripts/verify_dev17.sh
 ```
 
-For the Pair-3 lifecycle fix specifically:
+For the controller-completion and current budget-authority regressions specifically:
 
 ```bash
-python3 -m pytest -q tests/test_dev15_controller_completion.py tests/test_dev14_dod07_probe.py
+python3 -m pytest -q tests/test_dev15_controller_completion.py tests/test_dev16_nerve_budget.py tests/test_dev17_matrix_qol.py
 ```
 
 See `docs/DEV16_INSTALL_AND_RETEST.md` for nerve thresholds, live acceptance, completion diagnostics, and the next A/B protocol; dev15 documentation remains for lifecycle history.
@@ -151,9 +151,10 @@ Remote task text is sent over stdin. Controller provider credentials are not for
 The original eight dev4 Jev tools remain registered.
 
 ## Verification
+The canonical release gate is `bash scripts/verify_dev17.sh`; it runs the release verifiers and every `tests/test_*.py` file under pytest. `unittest discover` is not a complete substitute because pytest-style module functions are present.
 
 ```bash
-python3 -m unittest discover -s tests -v
+bash scripts/verify_dev17.sh
 python3 scripts/verify_dev6_benchmark.py
 python3 -m compileall -q .
 python3 scripts/verify_release.py
@@ -170,3 +171,57 @@ The dev5 foundation started from the last publicly verifiable Nerve development 
 - current Hermes Kanban lifecycle APIs, while keeping Kanban as the sole canonical work-state authority.
 
 See `docs/DEV_0.2.2.md` and `SOURCE_PROVENANCE.md`.
+
+## Nerve setup and personalities
+
+Nerve can now resolve a small set of user-facing modules instead of exposing every subsystem to every Hermes session. Existing installations remain in **Legacy** mode until a profile is explicitly selected, so upgrading does not silently change v0.2.3 behavior.
+
+Run:
+
+```bash
+nerve setup
+# or
+python -m hermes_nerve setup
+```
+
+The first menu is intentionally compact:
+
+```text
+1. Full Configuration - Pick every Nerve module and advanced option yourself.
+2. Fat Cat            - Max assistant quality; spend more tokens for capability.
+3. Operator           - Direct Hermes power use: tools, coding, agents, context.
+4. Lean               - Factory-first nervous system with token-heavy extras off.
+5. Marie Kondo        - Minimum Nerve: only features that clearly earn their cost.
+```
+
+Profile state is persisted atomically at `$HERMES_HOME/nerve/profile.json`. Full Configuration includes a manifest-driven advanced editor for typed sidecar overrides; re-selecting the same profile preserves those overrides, while `--reset` clears them deliberately. Advanced Hermes plugin settings can still also be supplied through the existing Hermes configuration surface. A missing profile sidecar and missing `nerve_profile` setting enter a dedicated v0.2.3 Legacy registration path. The exact 16-tool/9-hook/context-engine/headless behavior is regression-pinned, including the v0.2.3 `nerve_auto_kill` compatibility fallback and pre-LLM first-result semantics. `nerve_auto_kill` is compatibility state only; economic stop authority remains with the orchestrator/reviewer.
+
+### Hard-OFF modules
+
+For selected profiles, disabled modules are omitted from the Hermes model/runtime surface where practical: their tool schemas are not registered, their hooks are not installed, and their optional context engines/provider paths are not activated. Headless Kanban workers continue to expose zero Nerve tool schemas.
+
+### Shared Context
+
+Shared Context is an optional external integration. Nerve does **not** vendor HermesContextBus. Fat Cat and Operator enable the module by default; Lean and Marie Kondo keep it off pending factory A/B evidence.
+
+To inspect integration availability:
+
+```bash
+nerve setup --explain
+```
+
+To install from an explicit local HermesContextBus source checkout:
+
+```bash
+nerve setup --install-shared-context /path/to/HermesContextBus
+```
+
+Shared-context messages are coordination data, never tool authority or user permission.
+
+### Assistant Accountability
+
+Fat Cat enables optional persistent Assistant loops plus a per-turn accountability audit. Loops carry a next move, owner, dependencies, trigger/deadline, and Definition of Done. Completion is review-gated; generic updates cannot mark a loop done.
+
+Assistant loop content is treated as untrusted coordination data. It cannot create standing permission. The audit is independently switchable so durable loops can be used without recurring provider calls. Profile selection never writes the persistent Assistant operator override; only the explicit Assistant install/disable CLI actions may do that.
+
+See `planning/nerve-setup-profiles-factory-audit/IMPLEMENTATION_PLAN.md`, `FACTORY_AUDIT.md`, and `PROFILE_EVIDENCE.md` for design and evidence.

@@ -42,7 +42,7 @@ Verification for the release candidate includes Python 3.10–3.14 CI, Hermes pl
 
 ## 0.2.2.dev16 — token-budget DoD + nerve observer / kill switch
 
-- Adds a local task-token estimator and locks the resulting target into every auto-bound Kanban Definition of Done as required `DOD-BUDGET`.
+- Adds a local automatic budget estimator and locks the resulting target into every auto-bound Kanban Definition of Done as required `DOD-BUDGET`.
 - Adds a default 10% deterministic completion tolerance to reduce estimate-boundary false positives while keeping budget authority controller-owned.
 - Adds the zero-provider-cost nerve observer with CONTINUE/WATCH/REPLAN/KILL states and state-transition-only directives.
 - Adds a conservative hard circuit breaker: default 1.75x target and at least 12 provider calls; crossing the estimate alone never kills a run.
@@ -135,7 +135,7 @@ Verification for the release candidate includes Python 3.10–3.14 CI, Hermes pl
 - Mark an exact locked deterministic test criterion `FAIL` when its command fails, allowing the 40% checkpoint to see real negative progress instead of a falsely healthy UNKNOWN state.
 - Wire Hermes' native `pre_verify` hook to the deterministic-first completion verifier and batched Jev semantic completion decision.
 - Add `on_session_end` as a last-resort completion audit for lifecycle paths that bypass `pre_verify`.
-- Enforce the worker-token decision cooldown after a trajectory call so repeated pytest failures do not cause one Jev spend per test run. Blocker/plan-change triggers remain urgent.
+- Enforce a cooldown after a trajectory call so repeated pytest failures do not cause one Jev spend per test run. Blocker/plan-change triggers remain urgent.
 - Retain dev7's deterministic startup binding, exact run/claim fencing, package-relative imports, and zero model-visible Jev tools for headless workers.
 - Add regression coverage reproducing the exact dev7 failure mode: interleaved events, changing pytest failure sets, checkpoint FAIL state, real trajectory provider invocation, cooldown suppression, semantic pre-verify provider invocation, and session-end completion fallback.
 

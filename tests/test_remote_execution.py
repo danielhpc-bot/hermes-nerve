@@ -13,16 +13,14 @@ from hermes_nerve.remote.config import resolve_host
 from hermes_nerve.remote.errors import RemoteWorkerError
 from hermes_nerve.remote.execution import RemoteManager
 from hermes_nerve.remote.protocol import ProtocolState
+from hermes_nerve.remote.util import sanitized_subprocess_env
 
 
 class RemoteExecutionTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        source_fake = Path(__file__).with_name("fake_ssh.py").resolve()
-        self.fake = self.root / "fake_ssh.py"
-        self.fake.write_bytes(source_fake.read_bytes())
-        self.fake.chmod(0o755)
+        self.fake = Path(__file__).with_name("fake_ssh.py").resolve()
         runtime.configure(
             hosts={
                 "lab": {
@@ -41,6 +39,23 @@ class RemoteExecutionTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_local_runner_env_strips_parent_kanban_identity(self):
+        ambient = {
+            "HERMES_KANBAN_TASK": "ambient-task",
+            "HERMES_KANBAN_TASK_ID": "ambient-id",
+            "HERMES_KANBAN_RUN_ID": "7",
+            "HERMES_KANBAN_CLAIM_IDENTITY": "claim",
+            "HERMES_KANBAN_WORKER_ID": "worker",
+            "HERMES_NERVE_DOD_HASH": "hash",
+            "KEEP_ME": "yes",
+        }
+        with patch.dict(os.environ, ambient, clear=False):
+            child = sanitized_subprocess_env()
+        for key in ambient:
+            if key != "KEEP_ME":
+                self.assertNotIn(key, child)
+        self.assertEqual(child["KEEP_ME"], "yes")
 
     def test_admin_alias_and_workspace_containment(self):
         host = resolve_host(runtime.settings(), requested_alias="lab", workspace="repo/sub")
