@@ -30,11 +30,17 @@ def _parse_module_overrides(value: Any) -> dict[str, bool]:
     if isinstance(value, str):
         try:
             value = json.loads(value)
-        except json.JSONDecodeError:
-            return {}
+        except json.JSONDecodeError as exc:
+            raise ValueError("nerve_modules must be valid JSON or a mapping") from exc
     if not isinstance(value, Mapping):
-        return {}
-    return {str(k): bool(v) for k, v in value.items() if k in MODULES and type(v) is bool}
+        raise ValueError("nerve_modules must be a mapping")
+    unknown = [str(k) for k in value if str(k) not in MODULES]
+    if unknown:
+        raise ValueError("Unknown Nerve module override(s): " + ", ".join(sorted(unknown)))
+    invalid = [str(k) for k, v in value.items() if type(v) is not bool]
+    if invalid:
+        raise ValueError("Nerve module overrides must be booleans: " + ", ".join(sorted(invalid)))
+    return {str(k): v for k, v in value.items()}
 
 
 def resolve_config(get_config: Callable | None = None, *, home=None, profile: dict | None = None) -> ResolvedNerveConfig:
@@ -90,6 +96,8 @@ def resolve_config(get_config: Callable | None = None, *, home=None, profile: di
             modules["remote_workers"] = bool(get("remote_hosts", {}))
 
     reasons = {key: ("existing configuration" if name in ("legacy", "custom") else name + " preset") for key in MODULES}
+    if name == "fat_cat" and not modules["remote_workers"]:
+        reasons["remote_workers"] = "no remote_hosts configured"
 
     merged_overrides = {}
     if use_sidecar_values and document:
@@ -100,6 +108,20 @@ def resolve_config(get_config: Callable | None = None, *, home=None, profile: di
         reasons[key] = "explicit override"
 
     if name != "legacy":
+        # Advanced/legacy-compatible enable flags remain valid after a profile is
+        # selected. Reflect them in the resolved capability graph so policy,
+        # reasons, dependency pruning, and runtime activation cannot disagree.
+        runtime_enable_flags = {
+            "nervous": ("nervous_enabled", True),
+            "work_supervision": ("work_supervision_enabled", True),
+            "token_trajectory": ("work_nerve_observer_enabled", True),
+            "local_learning": ("nervous_local_learning", True),
+        }
+        for module, (setting, default) in runtime_enable_flags.items():
+            if modules.get(module, False) and not bool(get(setting, default)):
+                modules[module] = False
+                reasons[module] = f"{setting}=false"
+
         changed = True
         while changed:
             changed = False

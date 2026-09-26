@@ -39,12 +39,35 @@ def default_hermes_root() -> Path:
 
 
 def infer_profile_home_from_path(path: Path | None = None) -> Path | None:
-    """Infer ``<root>/profiles/<name>`` when *path* is inside a named profile."""
+    """Infer a trustworthy <root>/profiles/<name> home from *path*."""
     candidate = (path or Path.cwd()).expanduser().resolve(strict=False)
     parts = candidate.parts
-    for index in range(len(parts) - 2):
-        if parts[index] == "profiles" and index + 1 < len(parts):
-            return Path(*parts[: index + 2])
+    try:
+        default_root = default_hermes_root().expanduser().resolve(strict=False)
+    except RuntimeError:
+        # Path.home() can be unavailable in hermetic/report test environments.
+        # Explicit path inference must still work without process HOME metadata.
+        default_root = None
+
+    # A path may itself live inside another profile's scratch/cache tree, so
+    # inspect the nearest profile candidate first. Accept a fresh profile under
+    # the canonical .hermes/default root, or an alternate root only when it has
+    # a concrete Nerve/profile-install marker. This keeps arbitrary
+    # repo/vendor profiles/<name> directories from becoming report authority.
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index] != "profiles" or index + 1 >= len(parts):
+            continue
+        profile_home = Path(*parts[: index + 2])
+        root = Path(*parts[:index]).resolve(strict=False)
+        nested_under_profile = any(
+            parts[parent] == "profiles" and parent + 1 < index
+            for parent in range(index)
+        )
+        known_root = root == default_root or (root.name == ".hermes" and not nested_under_profile)
+        initialized = (profile_home / "nerve" / "profile.json").is_file()
+        installed_plugin = (profile_home / "plugins" / "hermes-nerve" / "plugin.yaml").is_file()
+        if (known_root and profile_home.is_dir()) or initialized or installed_plugin:
+            return profile_home
     return None
 
 

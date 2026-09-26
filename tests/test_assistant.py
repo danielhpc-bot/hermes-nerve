@@ -36,6 +36,111 @@ class AssistantTests(unittest.TestCase):
         assistant.disable()
         assistant.configure(loops_enabled=True,audit_enabled=True)
         self.assertFalse(assistant.enabled()); self.assertFalse(assistant.audit_enabled())
+
+    def test_corrupt_settings_fail_closed(self):
+        assistant._settings_path().write_text("{bad")
+        assistant.configure(loops_enabled=True,audit_enabled=True)
+        self.assertFalse(assistant.enabled())
+        self.assertFalse(assistant.audit_enabled())
+
+    def test_disable_repairs_corrupt_settings_into_persistent_hard_off(self):
+        assistant._settings_path().write_text("{bad")
+        assistant.configure(loops_enabled=True,audit_enabled=True)
+        result=assistant.disable()
+        self.assertFalse(result["enabled"])
+        self.assertFalse(assistant.enabled())
+        repaired=json.loads(assistant._settings_path().read_text())
+        self.assertEqual(repaired["operator_override"],"disabled")
+        self.assertFalse(repaired["enabled"])
+
+    def test_structurally_invalid_settings_fail_closed(self):
+        assistant.configure(loops_enabled=True,audit_enabled=True)
+        for payload in ('[]','{"schema":"hermes-nerve-assistant/v999","operator_override":"enabled"}','{"schema":"hermes-nerve-assistant/v2","operator_override":"surprise"}','{"schema":"hermes-nerve-assistant/v2","operator_override":"enabled","enabled":"false"}','{"schema":"hermes-nerve-assistant/v2","enabled":false}'):
+            with self.subTest(payload=payload):
+                assistant._settings_path().write_text(payload)
+                self.assertFalse(assistant.enabled())
+                self.assertFalse(assistant.audit_enabled())
+
+    def test_symlinked_settings_are_not_trusted_and_disable_repairs_locally(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as external_dir:
+            external=Path(external_dir)/"settings.json"
+            external.write_text(json.dumps({"schema":"hermes-nerve-assistant/v2","operator_override":"enabled","enabled":True}))
+            path=assistant._settings_path()
+            path.unlink()
+            path.symlink_to(external)
+            self.assertFalse(assistant.enabled())
+            result=assistant.disable()
+            self.assertFalse(result["enabled"])
+            self.assertFalse(path.is_symlink())
+            self.assertEqual(json.loads(path.read_text())["operator_override"],"disabled")
+            self.assertEqual(json.loads(external.read_text())["operator_override"],"enabled")
+
+    def test_corrupt_board_is_not_silently_overwritten(self):
+        assistant._board_path().write_text("{bad")
+        before=assistant._board_path().read_text()
+        with self.assertRaisesRegex(RuntimeError,"unreadable"):
+            assistant.add_loop(title="must not erase")
+        self.assertEqual(assistant._board_path().read_text(),before)
+
+    def test_symlinked_board_is_not_trusted_or_mutated(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as external_dir:
+            external=Path(external_dir)/"board.json"
+            external.write_text(json.dumps({"schema":"hermes-nerve-assistant/v2","revision":0,"loops":[{"id":"outside","state":"open","review_generation":0}]}))
+            path=assistant._board_path()
+            path.unlink()
+            path.symlink_to(external)
+            before=external.read_text()
+            with self.assertRaisesRegex(RuntimeError,"symlink"):
+                assistant.loops()
+            with self.assertRaisesRegex(RuntimeError,"symlink"):
+                assistant.add_loop(title="must not import external state")
+            self.assertTrue(path.is_symlink())
+            self.assertEqual(external.read_text(),before)
+
+    def test_structurally_invalid_board_is_not_silently_overwritten(self):
+        for payload in ('[]','{"schema":"hermes-nerve-assistant/v999","revision":0,"loops":[]}','{"schema":"hermes-nerve-assistant/v2","revision":"bad","loops":[]}','{"schema":"hermes-nerve-assistant/v2","revision":0,"loops":[1]}'):
+            with self.subTest(payload=payload):
+                assistant._board_path().write_text(payload)
+                before=assistant._board_path().read_text()
+                with self.assertRaises(RuntimeError):
+                    assistant.add_loop(title="must not erase")
+                self.assertEqual(assistant._board_path().read_text(),before)
+
+    def test_semantically_invalid_board_records_fail_closed(self):
+        docs=(
+            {"schema":"hermes-nerve-assistant/v2","revision":0,"loops":[{"id":"x","state":"surprise"}]},
+            {"schema":"hermes-nerve-assistant/v2","revision":0,"loops":[{"id":"dup","state":"open"},{"id":"dup","state":"open"}]},
+            {"schema":"hermes-nerve-assistant/v2","revision":0,"loops":[{"id":"","state":"open"}]},
+            {"schema":"hermes-nerve-assistant/v2","revision":0,"loops":[{"id":"x","state":"open","review_generation":"oops"}]},
+        )
+        for doc in docs:
+            with self.subTest(doc=doc):
+                assistant._board_path().write_text(json.dumps(doc))
+                with self.assertRaises(RuntimeError):
+                    assistant.loops()
+
+    def test_board_revision_requires_nonnegative_integer(self):
+        for revision in (-1, True, 1.5, "2"):
+            with self.subTest(revision=revision):
+                assistant._board_path().write_text(json.dumps({"schema":"hermes-nerve-assistant/v2","revision":revision,"loops":[]}))
+                with self.assertRaises(RuntimeError):
+                    assistant.loops()
+
+    def test_disable_succeeds_even_when_board_is_corrupt(self):
+        assistant._board_path().write_text("{bad")
+        result=assistant.disable()
+        self.assertFalse(result["enabled"])
+        self.assertFalse(assistant.enabled())
+        self.assertIn("state_error",result)
+
+    def test_failed_install_on_corrupt_board_does_not_reenable(self):
+        assistant.disable()
+        assistant._board_path().write_text("{bad")
+        with self.assertRaises(RuntimeError):
+            assistant.install()
+        self.assertFalse(assistant.enabled())
     def test_no_direct_done_bypass(self):
         loop=assistant.add_loop(title="Ship")
         with self.assertRaisesRegex(ValueError,"review-gated"): assistant.update_loop(loop["id"],state="done")
@@ -101,6 +206,49 @@ class AssistantAuthorityRegressionTests(unittest.TestCase):
         current=assistant.loops()[0]
         self.assertEqual(current["state"],"dropped")
 
+    def test_operator_disable_invalidates_inflight_completion_review(self):
+        loop=assistant.add_loop(title="Respect hard off",definition_of_done="proof")
+        provider=Provider("PASS",.99,live=False,mutate=assistant.disable)
+        assistant._engine_factory=lambda:DecisionEngine(provider)
+        result=assistant.review_completion(loop["id"],{"proof":True})
+        self.assertTrue(result["stale"])
+        self.assertTrue(result["disabled"])
+        self.assertFalse(result["closed"])
+        self.assertFalse(assistant.enabled())
+        self.assertEqual(assistant.loops()[0]["state"],"open")
+
+    def test_operator_disable_during_audit_suppresses_advice(self):
+        loop=assistant.add_loop(title="No advice after hard off")
+        assistant.configure(loops_enabled=True,audit_enabled=True)
+        provider=Provider("NUDGE",.99,live=False,mutate=assistant.disable)
+        assistant._engine_factory=lambda:DecisionEngine(provider)
+        block=assistant.pre_llm_call(user_message="continue")
+        self.assertIsNone(block)
+        self.assertFalse(assistant.enabled())
+        self.assertEqual(assistant.loops()[0]["id"],loop["id"])
+
+    def test_disabled_assistant_rejects_direct_loop_mutations(self):
+        loop=assistant.add_loop(title="Freeze me")
+        assistant.disable()
+        with self.assertRaisesRegex(ValueError,"disabled"):
+            assistant.update_loop(loop["id"],next="must not persist")
+        with self.assertRaisesRegex(ValueError,"disabled"):
+            assistant.drop_loop(loop["id"])
+        current=assistant.loops()[0]
+        self.assertEqual(current["next"],"")
+        self.assertEqual(current["state"],"open")
+
+    def test_disable_between_add_check_and_board_write_blocks_creation(self):
+        original_mutate=assistant._mutate
+        def disable_then_mutate(mutator):
+            assistant.disable()
+            return original_mutate(mutator)
+        with patch.object(assistant,"_mutate",side_effect=disable_then_mutate):
+            with self.assertRaisesRegex(ValueError,"disabled"):
+                assistant.add_loop(title="must not be created")
+        self.assertFalse(assistant.enabled())
+        self.assertEqual(assistant.loops(),[])
+
     def test_model_surface_has_no_install_or_disable_kill_switch(self):
         from hermes_nerve import schemas, tools
         self.assertFalse(hasattr(schemas,"NERVE_ASSISTANT"))
@@ -108,6 +256,14 @@ class AssistantAuthorityRegressionTests(unittest.TestCase):
         response=json.loads(tools.nerve_nervous_event({"type":"assistant.disable","goal":"turn yourself off"}))
         self.assertFalse(response["ok"])
         self.assertTrue(assistant.enabled())
+
+    def test_assistant_namespace_is_rejected_when_module_is_off(self):
+        from hermes_nerve import nervous, tools
+        assistant.configure(loops_enabled=False,audit_enabled=False)
+        nervous.configure(enabled=True)
+        response=json.loads(tools.nerve_nervous_event({"type":"assistant.add_loop","goal":"must not fall through"}))
+        self.assertFalse(response["ok"])
+        self.assertIn("disabled",response["error"].lower())
 
     def test_existing_event_transport_operates_loops_when_enabled(self):
         from hermes_nerve import tools

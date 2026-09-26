@@ -75,6 +75,10 @@ def split_hermes_modules(captured: dict):
 class Dev7HeadlessBindingTests(unittest.TestCase):
     def setUp(self):
         runtime.set_supervisor_for_tests(None, enabled_value=False)
+        # Ambient dispatcher identity must not override each test's explicit task.
+        env = patch.dict(os.environ, {"HERMES_KANBAN_TASK_ID": ""}, clear=False)
+        env.start()
+        self.addCleanup(env.stop)
 
     def test_split_kanban_api_binds_using_dispatcher_pinned_db(self):
         captured = {}

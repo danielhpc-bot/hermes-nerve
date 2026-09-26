@@ -24,7 +24,7 @@ _SPECS = (
     ModuleSpec('assistant_audit', 'Assistant audit', 'Reflex-check active goals during normal Hermes turns.', ('assistant_loops', 'reflex')),
     ModuleSpec('shadow_testing', 'Shadow testing', 'Compare Reflex backends for development/calibration.', ('reflex',)),
     ModuleSpec('receipts', 'Receipts', 'Keep bounded evidence for supervisory decisions.'),
-    ModuleSpec('local_learning', 'Local learning', 'Learn from bounded local supervisory outcomes.'),
+    ModuleSpec('local_learning', 'Local learning', 'Learn from bounded local supervisory outcomes.', ('nervous',)),
 )
 MODULES = MappingProxyType({spec.id: spec for spec in _SPECS})
 MODULE_REGISTRY = MODULES

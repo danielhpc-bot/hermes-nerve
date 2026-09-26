@@ -24,7 +24,18 @@ def sanitized_subprocess_env()->dict[str,str]:
  # SSH never forwards environment (-o SendEnv is not used). Strip common agent
  # credential forwarding knobs and SSH_ASKPASS to keep execution noninteractive.
  for key in list(env):
-  if key in {"SSH_ASKPASS","GIT_ASKPASS"} or key.startswith("HERMES_REMOTE_FORWARD_"):
+  if (
+   key in {"SSH_ASKPASS","GIT_ASKPASS"}
+   or key.startswith("HERMES_REMOTE_FORWARD_")
+   or key in {
+    "HERMES_KANBAN_TASK",
+    "HERMES_KANBAN_TASK_ID",
+    "HERMES_KANBAN_RUN_ID",
+    "HERMES_KANBAN_CLAIM_IDENTITY",
+    "HERMES_KANBAN_WORKER_ID",
+    "HERMES_NERVE_DOD_HASH",
+   }
+  ):
    env.pop(key,None)
  return env
 def pid_is_alive(pid:int)->bool:

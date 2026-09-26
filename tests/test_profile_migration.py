@@ -2,7 +2,7 @@ import json, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
 from hermes_nerve.config_resolver import resolve_config
-from hermes_nerve.profiles import load_profile, normalize_profile_name
+from hermes_nerve.profiles import load_profile, normalize_profile_name, save_profile
 
 class ProfileMigrationTests(unittest.TestCase):
     def test_legacy_preserves_v023_without_reading_real_home(self):
@@ -22,12 +22,54 @@ class ProfileMigrationTests(unittest.TestCase):
             with self.assertLogs("hermes_nerve.profiles",level="WARNING"):
                 self.assertEqual(load_profile(Path(td))["nerve_profile"],"lean")
             (root/"profile.json.bak").write_text("also bad")
+            with self.assertLogs("hermes_nerve.profiles",level="ERROR"):
+                with self.assertRaisesRegex(RuntimeError,"Invalid Nerve profile"):
+                    load_profile(Path(td))
+
+    def test_save_after_recovery_does_not_destroy_good_backup(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)/"nerve"; root.mkdir()
+            recovered={"version":1,"nerve_profile":"lean","nerve_modules":{},"advanced":{}}
+            replacement={"version":1,"nerve_profile":"operator","nerve_modules":{},"advanced":{}}
+            (root/"profile.json").write_text("{bad")
+            (root/"profile.json.bak").write_text(json.dumps(recovered))
             with self.assertLogs("hermes_nerve.profiles",level="WARNING"):
-                self.assertIsNone(load_profile(Path(td)))
+                self.assertEqual(load_profile(Path(td)),recovered)
+            save_profile(replacement,Path(td))
+            self.assertEqual(json.loads((root/"profile.json.bak").read_text()),recovered)
+            self.assertEqual(load_profile(Path(td)),replacement)
+
+    def test_clear_profile_removes_stale_backup_authority(self):
+        with tempfile.TemporaryDirectory() as td:
+            home=Path(td); root=home/"nerve"
+            old={"version":1,"nerve_profile":"operator","nerve_modules":{},"advanced":{}}
+            newer={"version":1,"nerve_profile":"lean","nerve_modules":{},"advanced":{}}
+            save_profile(old,home); save_profile(old,home)
+            from hermes_nerve.profiles import clear_profile
+            clear_profile(home)
+            self.assertFalse((root/"profile.json").exists())
+            self.assertFalse((root/"profile.json.bak").exists())
+            save_profile(newer,home)
+            (root/"profile.json").write_text("{bad")
+            with self.assertLogs("hermes_nerve.profiles",level="ERROR"):
+                with self.assertRaisesRegex(RuntimeError,"Invalid Nerve profile"):
+                    load_profile(home)
 
     def test_profile_name_normalization(self):
         self.assertEqual(normalize_profile_name("Fat-Cat"),"fat_cat")
         self.assertEqual(normalize_profile_name("Marie Kondo"),"marie_kondo")
+
+    def test_malformed_explicit_module_overrides_fail_closed(self):
+        bad_values=(
+            '{"action_gate": "false"}',
+            '{"not_a_module": false}',
+            '[["action_gate", false]]',
+            '{bad json',
+        )
+        for raw in bad_values:
+            with self.subTest(raw=raw):
+                with self.assertRaises(ValueError):
+                    resolve_config(get_config=lambda k,d=None: "operator" if k=="nerve_profile" else (raw if k=="nerve_modules" else d), profile=None)
 
     def test_unsupported_backup_version_is_not_guessed_and_remains_on_disk(self):
         with tempfile.TemporaryDirectory() as td:
@@ -35,6 +77,7 @@ class ProfileMigrationTests(unittest.TestCase):
             backup=root/"profile.json.bak"
             backup.write_text(json.dumps({"version":0,"nerve_profile":"lean","nerve_modules":{"context_governor":True},"advanced":{}}))
             before=backup.read_text()
-            with self.assertLogs("hermes_nerve.profiles",level="WARNING"):
-                self.assertIsNone(load_profile(Path(td)))
+            with self.assertLogs("hermes_nerve.profiles",level="ERROR"):
+                with self.assertRaisesRegex(RuntimeError,"Invalid Nerve profile"):
+                    load_profile(Path(td))
             self.assertEqual(backup.read_text(),before)

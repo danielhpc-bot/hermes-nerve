@@ -20,6 +20,48 @@ class SetupCliTests(unittest.TestCase):
         with a,b as rec,c,d,e:
             self.assertEqual(cli.main(["setup","--profile","lean"]),0); rec.assert_called_once_with(False)
 
+    def test_reconcile_failure_restores_previous_profile(self):
+        import os, tempfile
+        from pathlib import Path
+        from hermes_nerve.profiles import load_profile, save_profile
+        previous=cli._doc("operator",{"context_governor":True},{"timeout_seconds":17.0})
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ,{"HERMES_HOME":td},clear=False):
+            save_profile(previous,Path(td))
+            with patch.object(cli.shared_context,"reconcile_enabled",side_effect=RuntimeError("boom")):
+                with self.assertRaisesRegex(RuntimeError,"boom"):
+                    cli._save("lean",reset=True)
+            self.assertEqual(load_profile(Path(td)),previous)
+
+    def test_reconcile_failure_restores_legacy_no_sidecar(self):
+        import os, tempfile
+        from pathlib import Path
+        from hermes_nerve.profiles import load_profile
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ,{"HERMES_HOME":td},clear=False):
+            with patch.object(cli.shared_context,"reconcile_enabled",side_effect=RuntimeError("boom")):
+                with self.assertRaisesRegex(RuntimeError,"boom"):
+                    cli._save("lean",reset=True)
+            self.assertIsNone(load_profile(Path(td)))
+
+    def test_late_save_failure_restores_exact_primary_and_backup(self):
+        import os, tempfile
+        from pathlib import Path
+        from hermes_nerve.profiles import save_profile, snapshot_profile_state
+        older=cli._doc("operator",{"context_governor":True},{"timeout_seconds":11.0})
+        current=cli._doc("lean",{"context_governor":True},{"timeout_seconds":17.0})
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ,{"HERMES_HOME":td},clear=False):
+            home=Path(td)
+            save_profile(older,home)
+            save_profile(current,home)
+            before=snapshot_profile_state(home)
+            real_save=save_profile
+            def fail_after_write(doc):
+                real_save(doc,home)
+                raise RuntimeError("late save failure")
+            with patch.object(cli,"save_profile",side_effect=fail_after_write):
+                with self.assertRaisesRegex(RuntimeError,"late save failure"):
+                    cli._save("fat_cat",reset=True)
+            self.assertEqual(snapshot_profile_state(home),before)
+
     def test_legacy_is_explicit_cli_target(self):
         a,b,c,d,e=self._mutations()
         with a as save,b,c,d,e:
@@ -39,10 +81,13 @@ class SetupCliTests(unittest.TestCase):
     def test_selecting_same_profile_preserves_explicit_overrides(self):
         existing={"version":1,"nerve_profile":"lean","nerve_modules":{"context_governor":True},"advanced":{}}
         fake_path=type("P",(),{"__str__":lambda self:"/tmp/profile.json"})()
+        out=io.StringIO()
         with patch.object(cli,"load_profile",return_value=existing), patch.object(cli,"save_profile",return_value=fake_path) as save, \
-             patch.object(cli.shared_context,"reconcile_enabled",return_value={"changed":True}), patch.object(cli.assistant,"disable",return_value={}):
+             patch.object(cli.shared_context,"reconcile_enabled",return_value={"changed":True}), patch.object(cli.assistant,"disable",return_value={}), \
+             patch("sys.stdout",out):
             self.assertEqual(cli.main(["setup","--profile","lean"]),0)
         self.assertEqual(save.call_args.args[0]["nerve_modules"],{"context_governor":True})
+        self.assertIn("[ON ] Context governor",out.getvalue())
 
     def test_reset_profile_clears_explicit_overrides(self):
         existing={"version":1,"nerve_profile":"lean","nerve_modules":{"context_governor":True},"advanced":{}}

@@ -88,8 +88,12 @@ def _lock(name:str):
 
 
 def _read(path:Path,default:Any)->Any:
+    if path.is_symlink():
+        raise RuntimeError(f"Assistant state path must not be a symlink: {path}")
     try:return json.loads(path.read_text())
-    except (FileNotFoundError,json.JSONDecodeError,TypeError,OSError):return default
+    except FileNotFoundError:return default
+    except (json.JSONDecodeError,TypeError,OSError):
+        raise RuntimeError(f"Assistant state is unreadable: {path}")
 
 
 def _write(path:Path,value:Any)->None:
@@ -105,30 +109,66 @@ def _write(path:Path,value:Any)->None:
         except FileNotFoundError:pass
 
 
+def _settings()->dict[str,Any]:
+    settings=_read(_settings_path(),{})
+    if not isinstance(settings,dict):
+        raise RuntimeError(f"Assistant settings have invalid shape: {_settings_path()}")
+    schema=settings.get("schema")
+    if schema not in (None,1,_SCHEMA):
+        raise RuntimeError(f"Assistant settings have unsupported schema: {schema}")
+    if schema==_SCHEMA:
+        override=settings.get("operator_override")
+        if override not in ("enabled","disabled"):
+            raise RuntimeError(f"Assistant settings require explicit operator authority: {_settings_path()}")
+        if "enabled" in settings and type(settings.get("enabled")) is not bool:
+            raise RuntimeError(f"Assistant settings enabled flag is invalid: {_settings_path()}")
+    return settings
+
+
 def install()->dict[str,Any]:
     with _lock("settings"):
-        settings=_read(_settings_path(),{"schema":_SCHEMA})
+        settings=_settings() if _settings_path().exists() else {"schema":_SCHEMA}
+        with _lock("board"):
+            if _board_path().exists():
+                _board()
+            else:
+                _write(_board_path(),{"schema":_SCHEMA,"revision":0,"loops":[]})
         settings.update({"schema":_SCHEMA,"enabled":True,"operator_override":"enabled","updated_at":_now(),"installed_at":settings.get("installed_at") or _now()})
         _write(_settings_path(),settings)
-    with _lock("board"):
-        if not _board_path().exists():_write(_board_path(),{"schema":_SCHEMA,"revision":0,"loops":[]})
     return status()
 
 
 def disable()->dict[str,Any]:
     with _lock("settings"):
-        settings=_read(_settings_path(),{"schema":_SCHEMA})
+        try:
+            settings=_settings() if _settings_path().exists() else {"schema":_SCHEMA}
+        except RuntimeError:
+            # Explicit operator hard-off is the recovery authority. Corrupt
+            # settings must not make it impossible to persist a disabled marker.
+            settings={"schema":_SCHEMA}
         settings.update({"schema":_SCHEMA,"enabled":False,"operator_override":"disabled","updated_at":_now()})
         _write(_settings_path(),settings)
-    return status()
+    try:
+        return status()
+    except RuntimeError as exc:
+        return {"schema":_SCHEMA,"enabled":False,"audit_enabled":False,"installed":_settings_path().exists(),
+                "data_dir":str(data_dir()),"loop_count":None,"active_loop_count":None,"active_loops":[],
+                "state_error":str(exc)}
 
 
 def enabled()->bool:
     if not _loops_enabled:return False
-    settings=_read(_settings_path(),{})
+    try:
+        settings=_settings()
+    except RuntimeError:
+        # Persistent operator state is an authority boundary. Corruption must
+        # never be interpreted as permission to turn Assistant loops back on.
+        return False
     override=str(settings.get("operator_override") or "").strip().lower()
     if override=="disabled":return False
     if override=="enabled":return True
+    if override:
+        return False
     # Pre-profile beta settings may contain enabled:false from a profile transition.
     # Without an explicit operator_override marker, profile policy remains authoritative.
     return True
@@ -140,11 +180,30 @@ def audit_enabled()->bool:
 
 def _board()->dict[str,Any]:
     doc=_read(_board_path(),{"schema":_SCHEMA,"revision":0,"loops":[]})
-    if not isinstance(doc,dict):doc={}
-    loops=doc.get("loops") if isinstance(doc.get("loops"),list) else []
-    try:revision=max(0,int(doc.get("revision",0)))
-    except (TypeError,ValueError):revision=0
-    return {"schema":_SCHEMA,"revision":revision,"loops":[dict(x) for x in loops if isinstance(x,dict)]}
+    if not isinstance(doc,dict):
+        raise RuntimeError(f"Assistant board has invalid shape: {_board_path()}")
+    if doc.get("schema") not in (None,_SCHEMA):
+        raise RuntimeError(f"Assistant board has unsupported schema: {doc.get('schema')}")
+    if "loops" in doc and not isinstance(doc.get("loops"),list):
+        raise RuntimeError(f"Assistant board loops must be a list: {_board_path()}")
+    loops=doc.get("loops") or []
+    if any(not isinstance(x,dict) for x in loops):
+        raise RuntimeError(f"Assistant board contains invalid loop records: {_board_path()}")
+    seen_ids=set()
+    for item in loops:
+        loop_id=item.get("id")
+        if not isinstance(loop_id,str) or not loop_id.strip() or loop_id in seen_ids:
+            raise RuntimeError(f"Assistant board contains invalid or duplicate loop IDs: {_board_path()}")
+        seen_ids.add(loop_id)
+        if item.get("state") not in _STATES:
+            raise RuntimeError(f"Assistant board contains invalid loop state: {_board_path()}")
+        generation=item.get("review_generation",0)
+        if type(generation) is not int or generation<0:
+            raise RuntimeError(f"Assistant board contains invalid review generation: {_board_path()}")
+    revision=doc.get("revision",0)
+    if type(revision) is not int or revision<0:
+        raise RuntimeError(f"Assistant board revision is invalid: {_board_path()}")
+    return {"schema":_SCHEMA,"revision":revision,"loops":[dict(x) for x in loops]}
 
 
 def loops()->list[dict[str,Any]]:
@@ -161,8 +220,20 @@ def _find(items:list[dict[str,Any]],loop_id:str)->tuple[int,dict[str,Any]]:
     raise ValueError(f"unknown loop_id: {loop_id}")
 
 
+@contextmanager
+def _authorized_board():
+    # Serialize every authoritative board mutation against operator install/disable.
+    # Holding the settings lock makes the authority check and board write one
+    # linearizable operation: disable either happens before and blocks the write,
+    # or happens after the already-committed mutation.
+    with _lock("settings"):
+        if not enabled():raise ValueError("Assistant loops are disabled")
+        with _lock("board"):
+            yield
+
+
 def _mutate(mutator):
-    with _lock("board"):
+    with _authorized_board():
         doc=_board();result=mutator(doc["loops"]);doc["revision"]+=1;_write(_board_path(),doc);return result
 
 
@@ -208,8 +279,7 @@ def _bounded(value:Any,max_chars:int)->Any:
 
 
 def review_completion(loop_id:str,evidence:Any)->dict[str,Any]:
-    if not enabled():raise ValueError("Assistant loops are disabled")
-    with _lock("board"):
+    with _authorized_board():
         doc=_board();idx,item=_find(doc["loops"],loop_id)
         if item.get("state") in {"done","dropped"}:return {"loop":dict(item),"already_terminal":True,"provider_call":False}
         generation=int(item.get("review_generation") or 0)+1
@@ -222,16 +292,21 @@ def review_completion(loop_id:str,evidence:Any)->dict[str,Any]:
                       "A completion claim alone is not evidence. PASS only when no material next action remains; otherwise RETRY, REPLAN, or ESCALATE."),
         contract="assistant-loop-completion/v2")
     review=result.as_dict();review["at"]=_now();review["generation"]=generation
-    with _lock("board"):
-        doc=_board();idx,current=_find(doc["loops"],loop_id)
-        if int(current.get("review_generation") or 0)!=generation or current.get("state") in {"done","dropped"}:
-            return {"loop":dict(current),"closed":False,"stale":True,"review":review,"provider_call":bool(result.live_provider_call)}
-        close=result.value=="PASS" and result.confidence>=_min_completion_confidence
-        current["review"]=review;current["updated_at"]=_now()
-        if close:current["state"]="done"
-        elif result.value=="ESCALATE":current["state"]="blocked"
-        doc["loops"][idx]=current;doc["revision"]+=1;_write(_board_path(),doc)
-        return {"loop":dict(current),"closed":close,"review":review,"provider_call":bool(result.live_provider_call)}
+    try:
+        with _authorized_board():
+            doc=_board();idx,current=_find(doc["loops"],loop_id)
+            if int(current.get("review_generation") or 0)!=generation or current.get("state") in {"done","dropped"}:
+                return {"loop":dict(current),"closed":False,"stale":True,"review":review,"provider_call":bool(result.live_provider_call)}
+            close=result.value=="PASS" and result.confidence>=_min_completion_confidence
+            current["review"]=review;current["updated_at"]=_now()
+            if close:current["state"]="done"
+            elif result.value=="ESCALATE":current["state"]="blocked"
+            doc["loops"][idx]=current;doc["revision"]+=1;_write(_board_path(),doc)
+            return {"loop":dict(current),"closed":close,"review":review,"provider_call":bool(result.live_provider_call)}
+    except ValueError as exc:
+        if str(exc)!="Assistant loops are disabled":raise
+        current=_find(_board()["loops"],loop_id)[1]
+        return {"loop":dict(current),"closed":False,"stale":True,"disabled":True,"review":review,"provider_call":bool(result.live_provider_call)}
 
 
 def drop_loop(loop_id:str)->dict[str,Any]:
@@ -271,6 +346,7 @@ def audit_open_loops(turn_context:str="")->dict[str,Any]|None:
         criteria={"CONTINUE":"No intervention buys anything.","NUDGE":"A concrete next move risks being dropped.",
                   "REPLAN":"Current approach materially drifts.","ESCALATE":"Human judgment, permission, or external dependency is required."},
         contract="assistant-open-loop-audit/v2")
+    if not enabled():return None
     payload=result.as_dict();payload["at"]=_now();return payload
 
 
@@ -288,7 +364,7 @@ def pre_llm_call(**kwargs:Any)->str|None:
         except Exception:review=None
         if review and review.get("value")!="CONTINUE" and float(review.get("confidence") or 0)>=_audit_min_confidence:
             block+=f"\n[REFLEX ACCOUNTABILITY ADVICE] {review['value']} confidence={float(review.get('confidence') or 0):.3f}. Advice only; Hermes/user retain authority."
-    return block
+    return block if enabled() else None
 
 
 def status()->dict[str,Any]:

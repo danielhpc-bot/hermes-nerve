@@ -10,7 +10,7 @@ from . import assistant
 from .config_resolver import resolve_config
 from .integrations import shared_context
 from .modules import MODULES
-from .profiles import load_profile, save_profile
+from .profiles import clear_profile, load_profile, restore_profile_state, save_profile, snapshot_profile_state
 
 _ORDER = ("fat_cat", "operator", "lean", "marie_kondo")
 _CLI_PROFILES = _ORDER + ("legacy",)
@@ -119,15 +119,23 @@ def _show(r):
 
 
 def _save(profile, overrides=None, *, reset=False, advanced=None):
+    snapshot = snapshot_profile_state()
     current = load_profile()
     if overrides is None and not reset and current and current.get("nerve_profile") == profile:
         overrides = dict(current.get("nerve_modules") or {})
     if advanced is None and not reset and current and current.get("nerve_profile") == profile:
         advanced = dict(current.get("advanced") or {})
     doc = _doc(profile, overrides, advanced)
-    path = save_profile(doc)
-    resolved = resolve_config(profile=doc)
-    shared = shared_context.reconcile_enabled(resolved.enabled("shared_context"))
+    try:
+        path = save_profile(doc)
+        resolved = resolve_config(profile=doc)
+        shared = shared_context.reconcile_enabled(resolved.enabled("shared_context"))
+    except Exception:
+        # Profile persistence and external reconciliation are one setup
+        # transaction. Restore the exact primary/backup bytes after any
+        # failure that occurs once the attempted update begins.
+        restore_profile_state(snapshot)
+        raise
     if shared.get("warning"):
         print("Shared Context: " + shared["warning"], file=sys.stderr)
     # Profile state and explicit operator Assistant disable are separate authorities.
@@ -216,7 +224,11 @@ def main(argv=None):
     target = args.profile or args.reset
     if target:
         path = _save(target, reset=bool(args.reset))
-        _show(resolve_config(profile=_doc(target)))
+        # Show the document that was actually persisted. Re-selecting the same
+        # profile intentionally preserves module/advanced overrides, so showing
+        # a fresh canonical preset here would misreport the effective state.
+        saved = load_profile()
+        _show(resolve_config(profile=saved or _doc(target)))
         print(f"Saved {path}")
         return 0
     if not sys.stdin.isatty():

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import importlib.util, os, sys, tempfile, unittest
+import importlib.util, json, os, sys, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,17 +26,65 @@ class ModuleAbsenceTests(unittest.TestCase):
 
     def test_lean_removes_qol_surfaces_and_hooks(self):
         mod,ctx=self.register("lean")
-        self.assertIn("nerve_supervise_card",ctx.tools); self.assertIn("nerve_nervous_event",ctx.tools)
+        self.assertIn("nerve_decide",ctx.tools); self.assertIn("nerve_supervise_card",ctx.tools); self.assertIn("nerve_nervous_event",ctx.tools)
+        self.assertNotIn("nerve_rank",ctx.tools); self.assertNotIn("nerve_verify",ctx.tools); self.assertNotIn("nerve_assess",ctx.tools)
         self.assertNotIn("nerve_context_curate",ctx.tools); self.assertNotIn("nerve_remote_delegate_task",ctx.tools); self.assertNotIn("nerve_assistant",ctx.tools)
         self.assertIsNone(ctx.engine)
         self.assertFalse(any(cb is mod.ledger.observe_tool_call for _,cb in ctx.hooks))
         self.assertFalse(any(cb is mod.gate.pre_tool_call for _,cb in ctx.hooks))
+
+    def test_lean_runtime_defaults_cut_provider_admission_and_cap_calls(self):
+        mod=load_plugin()
+        td=tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        env=patch.dict(os.environ,{"HERMES_HOME":td.name,"HERMES_KANBAN_TASK":"","HERMES_KANBAN_TASK_ID":""},clear=False); env.start(); self.addCleanup(env.stop)
+        ctx=Ctx(Path(td.name),{"nerve_profile":"lean"})
+        with patch.object(mod.nervous,"configure",wraps=mod.nervous.configure) as conf:
+            mod.register(ctx)
+        kwargs=conf.call_args.kwargs
+        self.assertFalse(kwargs["admission_enabled"])
+        self.assertEqual(kwargs["max_provider_calls_per_turn"],12)
+        self.assertEqual(kwargs["event_preview_chars"],800)
+        self.assertEqual(kwargs["retain_recent_events"],32)
+
+    def test_lean_runtime_defaults_allow_explicit_override(self):
+        mod=load_plugin()
+        td=tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        env=patch.dict(os.environ,{"HERMES_HOME":td.name,"HERMES_KANBAN_TASK":"","HERMES_KANBAN_TASK_ID":""},clear=False); env.start(); self.addCleanup(env.stop)
+        ctx=Ctx(Path(td.name),{
+            "nerve_profile":"lean",
+            "nervous_turn_admission":True,
+            "nervous_max_provider_calls_per_turn":21,
+            "nervous_event_preview_chars":1000,
+            "nervous_retain_recent_events":40,
+        })
+        with patch.object(mod.nervous,"configure",wraps=mod.nervous.configure) as conf:
+            mod.register(ctx)
+        kwargs=conf.call_args.kwargs
+        self.assertTrue(kwargs["admission_enabled"])
+        self.assertEqual(kwargs["max_provider_calls_per_turn"],21)
+        self.assertEqual(kwargs["event_preview_chars"],1000)
+        self.assertEqual(kwargs["retain_recent_events"],40)
+
+    def test_lean_schema_surface_stays_token_bounded(self):
+        _,ctx=self.register("lean")
+        chars=sum(len(json.dumps(schema,separators=(",",":"),ensure_ascii=False)) for schema,_ in ctx.tools.values())
+        self.assertLessEqual(chars,4500)
 
     def test_operator_removes_factory_and_remote_surfaces(self):
         _,ctx=self.register("operator")
         self.assertIn("nerve_context_curate",ctx.tools); self.assertIn("nerve_nervous_event",ctx.tools)
         self.assertNotIn("nerve_supervise_card",ctx.tools); self.assertNotIn("nerve_remote_delegate_task",ctx.tools); self.assertNotIn("nerve_assistant",ctx.tools)
         names={n for n,_ in ctx.hooks}; self.assertNotIn("post_api_request",names); self.assertNotIn("api_request_error",names); self.assertIsNotNone(ctx.engine)
+
+    def test_action_gate_profiles_are_actually_active_by_default(self):
+        for profile in ("fat_cat","operator"):
+            with self.subTest(profile=profile):
+                mod,_=self.register(profile,{"remote_hosts":{}})
+                self.assertEqual(mod.gate.gate_mode(),"advisory")
+
+    def test_action_gate_profile_default_respects_explicit_off_override(self):
+        mod,_=self.register("operator",{"gate_mode":"off"})
+        self.assertEqual(mod.gate.gate_mode(),"off")
 
     def test_marie_kondo_is_minimal_and_has_no_nervous_or_context_hooks(self):
         mod,ctx=self.register("marie_kondo")
@@ -55,6 +103,11 @@ class ModuleAbsenceTests(unittest.TestCase):
     def test_explicit_module_override_wins(self):
         _,ctx=self.register("lean",{"nerve_modules":{"context_governor":True}})
         self.assertIn("nerve_context_curate",ctx.tools); self.assertIsNotNone(ctx.engine)
+
+    def test_assistant_loops_keep_shared_event_transport_when_nervous_is_off(self):
+        _,ctx=self.register("lean",{"nerve_modules":{"nervous":False,"assistant_loops":True}})
+        self.assertIn("nerve_nervous_event",ctx.tools)
+        self.assertNotIn("nerve_context_curate",ctx.tools)
 
     def test_profile_shadow_backend_requires_shadow_testing_but_legacy_honors_existing_setting(self):
         # New profiles make shadow testing an explicit module cost. Legacy keeps the v0.2.3 setting verbatim.

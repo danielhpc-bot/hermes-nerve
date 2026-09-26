@@ -31,14 +31,81 @@ class SharedContextAdapterTests(unittest.TestCase):
             target=Path(home)/"plugins"/"hermes-context-bus"; target.mkdir(parents=True); (target/"plugin.yaml").write_text('version: "0.1.0"\nprovides_tools: []\n')
             self.assertFalse(shared_context.detect(Path(home))["compatible"])
 
+    def test_health_tool_must_be_declared_under_provides_tools(self):
+        with tempfile.TemporaryDirectory() as home:
+            target=Path(home)/"plugins"/"hermes-context-bus"; target.mkdir(parents=True)
+            (target/"plugin.yaml").write_text(
+                'name: hermes-context-bus\nversion: "0.2.0"\n'
+                'not_tools:\n  - shared_context_health\nprovides_tools: []\n'
+            )
+            st=shared_context.detect(Path(home))
+            self.assertFalse(st["health_tool"])
+            self.assertFalse(st["compatible"])
+
     def test_install_requires_v02_health_and_replace_is_explicit(self):
         with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as home:
             src=self._source(source,"0.1.0",False)
             with self.assertRaises(ValueError): shared_context.install_from_source(src,Path(home))
         with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as home:
+            src=Path(source)
+            (src/"plugin.yaml").write_text('name: lookalike-plugin\nversion: "0.2.0"\nprovides_tools:\n  - shared_context_health\n')
+            with self.assertRaisesRegex(ValueError,"hermes-context-bus"):
+                shared_context.install_from_source(src,Path(home))
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as home:
             src=self._source(source); target=Path(home)/"plugins"/"hermes-context-bus"; target.mkdir(parents=True); (target/"plugin.yaml").write_text('version: "0.1.0"\n')
             with self.assertRaisesRegex(ValueError,"replace"): shared_context.install_from_source(src,Path(home))
             self.assertTrue(shared_context.install_from_source(src,Path(home),replace=True)["compatible"])
+
+    def test_replace_copy_failure_preserves_existing_install(self):
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as home:
+            src=self._source(source)
+            target=Path(home)/"plugins"/"hermes-context-bus"
+            target.mkdir(parents=True)
+            (target/"plugin.yaml").write_text(MANIFEST)
+            (target/"KEEP").write_text("old")
+            def fail_copy(src_path,dst_path,*args,**kwargs):
+                raise OSError("simulated copy failure")
+            with patch.object(shared_context.shutil,"copytree",side_effect=fail_copy):
+                with self.assertRaisesRegex(OSError,"simulated"):
+                    shared_context.install_from_source(src,Path(home),replace=True)
+            self.assertTrue((target/"KEEP").exists())
+            self.assertTrue(shared_context.detect(Path(home))["compatible"])
+
+    def test_rejects_symlinked_source_content(self):
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as outside, tempfile.TemporaryDirectory() as home:
+            src=self._source(source)
+            secret=Path(outside)/"secret.txt"; secret.write_text("do-not-copy")
+            try:
+                (src/"linked-secret").symlink_to(secret)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            with self.assertRaisesRegex(ValueError,"symlink"):
+                shared_context.install_from_source(src,Path(home))
+
+    def test_rejects_symlinked_source_root(self):
+        with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as links, tempfile.TemporaryDirectory() as home:
+            src=self._source(source)
+            link=Path(links)/"bus"
+            try:
+                link.symlink_to(src, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            with self.assertRaisesRegex(ValueError,"symlink"):
+                shared_context.install_from_source(link,Path(home))
+
+    def test_existing_symlinked_install_is_not_compatible(self):
+        with tempfile.TemporaryDirectory() as outside, tempfile.TemporaryDirectory() as home:
+            ext=self._source(outside)
+            plugins=Path(home)/"plugins"; plugins.mkdir()
+            link=plugins/"hermes-context-bus"
+            try:
+                link.symlink_to(ext,target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            st=shared_context.detect(Path(home))
+            self.assertTrue(st["installed"])
+            self.assertTrue(st["symlinked"])
+            self.assertFalse(st["compatible"])
 
     def test_reconcile_uses_hermes_cli_and_propagates_home(self):
         calls=[]

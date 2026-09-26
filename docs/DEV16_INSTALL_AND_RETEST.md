@@ -1,12 +1,14 @@
 # Nerve v0.2.2.dev16 — nerve observer + token-budget DoD
 
+> **Historical dev16 note.** This document records the dev16 experiment and is not the current v0.2.3 setup or release guide. Use `docs/SETUP.md` for current setup and `bash scripts/verify_dev17.sh` for the canonical release gate.
+
 Dev16 starts from the finalized dev15 controller-completion build and incorporates the failure modes and quality-of-life issues exposed by the dev14 Solar Pro 4 A/B sessions.
 
 ## What changed
 
 ### 1. "How many tokens should this take?" is now locked into the DoD
 
-For automatically bound Kanban tasks, Jev estimates a conservative worker-token target from the structured Definition of Done before the first worker model call. The default estimator is local and free:
+For automatically bound Kanban tasks, Jev estimates a conservative worker[REDACTED] from the structured Definition of Done before the first worker model call. The default estimator is local and free:
 
 ```text
 estimate = safety_multiplier * (
@@ -25,7 +27,7 @@ Defaults:
 - floor: `work_default_task_budget_tokens` (70k)
 - cap: 2,000,000
 
-The estimator rounds to 10k for stable, readable contracts. The frozen 8-criterion event-delivery benchmark used in the dev14 A/B produces a **960,000-token target**.
+The estimator rounds to 10k for stable, readable contracts. The frozen 8-criterion event-delivery benchmark used in the dev14 A/B produces a **960,000[REDACTED]
 
 Jev appends a required `DOD-BUDGET` criterion. It is controller-verifiable and cannot be waived by worker prose. A small default completion tolerance (`1.10x`) avoids false failures from normal estimate noise. With the frozen benchmark that gives a completion ceiling of **1,056,000 accounted worker tokens**.
 
@@ -91,7 +93,7 @@ work_budget_estimator_safety_multiplier: 1.25
 work_budget_estimator_max_tokens: 2000000
 
 work_nerve_observer_enabled: true
-work_nerve_auto_kill: true
+work_nerve_auto_kill: false  # deprecated compatibility state; does not own stop authority
 work_nerve_watch_fraction: 0.65
 work_nerve_replan_fraction: 0.90
 work_nerve_hard_budget_multiplier: 1.75
@@ -100,7 +102,7 @@ work_nerve_repeated_failure_kill: 3
 work_nerve_high_context_streak_kill: 3
 ```
 
-For initial deployment on unknown workloads, set `work_nerve_auto_kill: false` to collect WATCH/REPLAN/KILL telemetry without canonical blocking. Once the observed false-positive rate is acceptable, turn automatic kill on.
+`work_nerve_auto_kill` is retained only for compatibility with older configurations. Current Nerve does not use it to own economic stop authority: budget/trajectory escalation routes to the orchestrator/reviewer. Leave it `false`; WATCH/REPLAN and review telemetry remain available without granting Nerve a canonical kill switch.
 
 ## Install
 
@@ -115,18 +117,24 @@ bash scripts/install_dev16_profile.sh abtest-jev-dev16
 bash scripts/verify_dev16.sh
 ```
 
-Nerve-specific tests:
+Historical dev16-focused tests now map to the maintained files below:
 
 ```bash
 python3 -m pytest -q \
   tests/test_dev16_nerve_budget.py \
   tests/test_dev15_controller_completion.py \
-  tests/test_dev14_dod07_probe.py
+  tests/test_dev17_matrix_qol.py
 ```
 
-## Recommended next A/B
+For current release qualification, run the full canonical gate instead:
 
-Keep the same frozen event-delivery task and Solar Pro 4 stress model. Record at minimum:
+```bash
+bash scripts/verify_dev17.sh
+```
+
+## Historical A/B record
+
+The following checklist describes the original frozen event-delivery / Solar Pro 4 experiment. It is retained as historical benchmark context, not as the current release procedure. Record at minimum:
 
 - valid completion;
 - worker calls to first completion candidate;
@@ -139,4 +147,4 @@ Keep the same frozen event-delivery task and Solar Pro 4 stress model. Record at
 - native completion attempts;
 - terminal outcome.
 
-The release target is not merely lower mean token use. The primary dev16 target is **tail compression**: no multi-million-token lifecycle spiral, no false-positive kill of a healthy run near the estimated budget, and zero model calls after verified PASS.
+The release target is not merely lower mean token use. The primary dev16 target is **tail compression**: no multi-million[REDACTED] spiral, no false-positive kill of a healthy run near the estimated budget, and zero model calls after verified PASS.

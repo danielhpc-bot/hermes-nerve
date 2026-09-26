@@ -157,7 +157,9 @@ def nerve_nervous_event(args: dict, **kwargs) -> str:
     try:
         event = dict(args or {})
         event_type = str(event.get("type") or "").strip().lower()
-        if event_type.startswith("assistant.") and assistant.enabled():
+        if event_type.startswith("assistant."):
+            if not assistant.enabled():
+                raise ValueError("Assistant loops are disabled")
             state = event.get("state") if isinstance(event.get("state"), dict) else {}
             if event_type == "assistant.status":
                 result = assistant.status()

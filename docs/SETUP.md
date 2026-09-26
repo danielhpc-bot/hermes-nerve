@@ -1,14 +1,14 @@
-# Nerve v0.2.2.dev4 setup
+# Nerve v0.2.3 setup
 
 ## Install
 
 Install the plugin with the normal Hermes plugin flow, then validate registration:
 
 ```bash
-hermes plugins doctor hermes-nerve --ci
+hermes plugins doctor . --ci
 ```
 
-Expected public surface: 8 tools, 7 hook names, and the optional `jev` ContextEngine.
+Expected Legacy public surface: 16 tools, 9 hook names, and the optional `jev` ContextEngine. Named profiles intentionally register smaller module-specific surfaces.
 
 ## Provider
 
@@ -90,7 +90,7 @@ The module layer is resolved before plugin registration. A disabled module does 
 
 - **Fat Cat:** Assistant + context/QoL features; Shared Context ON; remote workers only when hosts are configured.
 - **Operator:** direct interactive Hermes; context/action supervision ON; Kanban/Assistant/remote-worker features OFF by default; Shared Context ON.
-- **Lean:** work supervision + token trajectory + nervous/reflex core; QoL/context/remote/Assistant/Shared Context OFF pending evidence.
+- **Lean:** work supervision + token trajectory + nervous/reflex core; QoL/context/remote/Assistant/Shared Context OFF pending evidence. Lean also avoids provider-based turn admission by default, caps nervous provider calls at 12 per turn, uses smaller nervous event windows, and exposes only the compact `nerve_decide` manual Reflex surface; explicit advanced settings can override the runtime limits.
 - **Marie Kondo:** Reflex + evidence/DoD/work completion + minimum receipts; most other modules OFF.
 
 ### Shared Context

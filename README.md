@@ -121,10 +121,10 @@ Verify the package before a live run:
 bash scripts/verify_dev17.sh
 ```
 
-For the Pair-3 lifecycle fix specifically:
+For the controller-completion and current budget-authority regressions specifically:
 
 ```bash
-python3 -m pytest -q tests/test_dev15_controller_completion.py tests/test_dev14_dod07_probe.py
+python3 -m pytest -q tests/test_dev15_controller_completion.py tests/test_dev16_nerve_budget.py tests/test_dev17_matrix_qol.py
 ```
 
 See `docs/DEV16_INSTALL_AND_RETEST.md` for nerve thresholds, live acceptance, completion diagnostics, and the next A/B protocol; dev15 documentation remains for lifecycle history.
@@ -151,9 +151,10 @@ Remote task text is sent over stdin. Controller provider credentials are not for
 The original eight dev4 Jev tools remain registered.
 
 ## Verification
+The canonical release gate is `bash scripts/verify_dev17.sh`; it runs the release verifiers and every `tests/test_*.py` file under pytest. `unittest discover` is not a complete substitute because pytest-style module functions are present.
 
 ```bash
-python3 -m unittest discover -s tests -v
+bash scripts/verify_dev17.sh
 python3 scripts/verify_dev6_benchmark.py
 python3 -m compileall -q .
 python3 scripts/verify_release.py
@@ -193,7 +194,7 @@ The first menu is intentionally compact:
 5. Marie Kondo        - Minimum Nerve: only features that clearly earn their cost.
 ```
 
-Profile state is persisted atomically at `$HERMES_HOME/nerve/profile.json`. Full Configuration includes a manifest-driven advanced editor for typed sidecar overrides; re-selecting the same profile preserves those overrides, while `--reset` clears them deliberately. Advanced Hermes plugin settings can still also be supplied through the existing Hermes configuration surface. A missing profile sidecar and missing `nerve_profile` setting enter a dedicated v0.2.3 Legacy registration path. The exact 16-tool/9-hook/context-engine/headless behavior is regression-pinned, including the v0.2.3 `nerve_auto_kill` fallback and pre-LLM first-result semantics.
+Profile state is persisted atomically at `$HERMES_HOME/nerve/profile.json`. Full Configuration includes a manifest-driven advanced editor for typed sidecar overrides; re-selecting the same profile preserves those overrides, while `--reset` clears them deliberately. Advanced Hermes plugin settings can still also be supplied through the existing Hermes configuration surface. A missing profile sidecar and missing `nerve_profile` setting enter a dedicated v0.2.3 Legacy registration path. The exact 16-tool/9-hook/context-engine/headless behavior is regression-pinned, including the v0.2.3 `nerve_auto_kill` compatibility fallback and pre-LLM first-result semantics. `nerve_auto_kill` is compatibility state only; economic stop authority remains with the orchestrator/reviewer.
 
 ### Hard-OFF modules
 

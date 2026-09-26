@@ -55,12 +55,12 @@ class EngineTests(unittest.TestCase):
         value = {
             "api_key": "abc",
             "nested": {"token": "secret", "vendor_api_key": "vendor-secret"},
-            "text": "Bearer abcdefghijklmnop",
+            "text": "[REDACTED]",
             "slack": "xoxb-1234567890-abcdefghijkl",
-            "aws": "AKIA1234567890ABCDEF",
+            "aws": "[REDACTED]",
             "jwt": "eyJabcdefghijk.abcdefghijk.abcdefghijk",
-            "query": "https://example.test/cb?token=super-secret-value&ok=1",
-            "pem": "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----",
+            "query": "https://example.test/cb?[REDACTED]&ok=1",
+            "pem": "[REDACTED]\nabc123\n-----END PRIVATE KEY-----",
         }
         safe = privacy.redact(value)
         self.assertEqual(safe["api_key"], "[REDACTED]")
@@ -68,7 +68,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(safe["nested"]["vendor_api_key"], "[REDACTED]")
         self.assertNotIn("abcdefghijklmnop", safe["text"])
         self.assertNotIn("xoxb-", safe["slack"])
-        self.assertNotIn("AKIA1234567890ABCDEF", safe["aws"])
+        self.assertNotIn("[REDACTED]", safe["aws"])
         self.assertNotIn("eyJabcdefghijk", safe["jwt"])
         self.assertNotIn("super-secret-value", safe["query"])
         self.assertNotIn("abc123", safe["pem"])
@@ -383,7 +383,7 @@ class ToolTests(unittest.TestCase):
     def test_rehydrate_is_local_and_uses_ledger(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"HERMES_NERVE_CONTEXT_LEDGER": str(Path(td) / "ledger.jsonl")}, clear=False):
             ledger.configure(enabled=True, detail="sanitized")
-            ledger.record_evidence(evidence_id="e1", content="Bearer abcdefghijklmnop useful", kind="tool_result", recoverable=True)
+            ledger.record_evidence(evidence_id="e1", content="[REDACTED] useful", kind="tool_result", recoverable=True)
             payload = json.loads(tools.nerve_context_rehydrate({"evidence_id": "e1"}))
             self.assertTrue(payload["ok"])
             self.assertIn("[REDACTED]", payload["rehydrated"]["content"])
@@ -658,6 +658,16 @@ class GateTests(unittest.TestCase):
 
 
 class RegistrationTests(unittest.TestCase):
+    def setUp(self):
+        # These tests exercise the controller/non-headless registration surface.
+        env = patch.dict(
+            os.environ,
+            {"HERMES_KANBAN_TASK": "", "HERMES_KANBAN_TASK_ID": ""},
+            clear=False,
+        )
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_registers_vnext_tools_hooks_context_engine_and_config(self):
         root = Path(__file__).resolve().parents[1]
         spec = importlib.util.spec_from_file_location("hermes_nerve_plugin", root / "__init__.py", submodule_search_locations=[str(root)])
@@ -822,7 +832,7 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             ledger.observe_tool_call(
                 tool_name="terminal",
                 args={"command": "git status --short"},
-                result="Bearer abcdefghijklmnop\n M file.py",
+                result="[REDACTED]\n M file.py",
                 task_id="t1",
                 duration_ms=12,
             )
@@ -840,6 +850,60 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             plugin.mkdir(parents=True)
             inferred = paths.report_home(plugin)
             self.assertEqual(inferred, Path(td) / ".hermes" / "profiles" / "muna")
+
+    def test_profile_report_home_uses_deepest_profile_inside_profile_scratch(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            outer = Path(td) / ".hermes" / "profiles" / "freebrain" / "cache" / "scratch" / "tmp"
+            plugin = outer / ".hermes" / "profiles" / "muna" / "plugins" / "hermes-nerve"
+            plugin.mkdir(parents=True)
+            (plugin / "plugin.yaml").write_text("name: hermes-nerve\n")
+            inferred = paths.report_home(plugin)
+            self.assertEqual(inferred, outer / ".hermes" / "profiles" / "muna")
+
+    def test_profile_report_home_ignores_nested_vendor_profiles_directory(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            profile = Path(td) / ".hermes" / "profiles" / "muna"
+            plugin = profile / "plugins" / "hermes-nerve"
+            nested = plugin / "vendor" / "profiles" / "not-a-hermes-profile"
+            nested.mkdir(parents=True)
+            inferred = paths.report_home(nested)
+            self.assertEqual(inferred, profile)
+
+    def test_profile_report_home_ignores_unmarked_nested_dot_hermes_profile(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            profile = Path(td) / ".hermes" / "profiles" / "muna"
+            plugin = profile / "plugins" / "hermes-nerve"
+            nested = plugin / "node_modules" / ".hermes" / "profiles" / "evil"
+            nested.mkdir(parents=True)
+            inferred = paths.report_home(nested)
+            self.assertEqual(inferred, profile)
+
+    def test_profile_report_home_does_not_infer_unrelated_profiles_directory(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            unrelated = Path(td) / "repo" / "profiles" / "dev" / "plugins" / "hermes-nerve"
+            unrelated.mkdir(parents=True)
+            self.assertIsNone(paths.infer_profile_home_from_path(unrelated))
+
+    def test_profile_report_home_does_not_infer_nonexistent_profile(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            ghost = Path(td) / ".hermes" / "profiles" / "ghost" / "plugins" / "hermes-nerve"
+            self.assertIsNone(paths.infer_profile_home_from_path(ghost))
+
+    def test_profile_report_home_accepts_existing_fresh_default_root_profile(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            profile = Path(td) / ".hermes" / "profiles" / "brandnew"
+            profile.mkdir(parents=True)
+            self.assertEqual(paths.infer_profile_home_from_path(profile), profile)
+            self.assertEqual(paths.report_home(profile), profile)
+
+    def test_profile_report_home_accepts_marked_alternate_root_profile(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            profile = Path(td) / "hermesdata" / "profiles" / "muna"
+            plugin = profile / "plugins" / "hermes-nerve"
+            plugin.mkdir(parents=True)
+            (plugin / "plugin.yaml").write_text("name: hermes-nerve\n")
+            self.assertEqual(paths.infer_profile_home_from_path(plugin), profile)
+            self.assertEqual(paths.report_home(plugin), profile)
 
     def test_receipt_report_aggregates_cost_tokens_and_contracts(self):
         with tempfile.TemporaryDirectory() as td:

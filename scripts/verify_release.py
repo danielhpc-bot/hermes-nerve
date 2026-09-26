@@ -26,7 +26,7 @@ EXPECTED_HOOKS={"pre_tool_call","post_tool_call","pre_llm_call","transform_tool_
 PROFILE_FAT_CAT_TOOLS={"nerve_decide","nerve_rank","nerve_verify","nerve_assess","nerve_context_curate","nerve_context_rehydrate","nerve_stats","nerve_nervous_event","nerve_supervise_card","nerve_work_event","nerve_work_status"}
 PROFILE_OPERATOR_TOOLS={"nerve_decide","nerve_rank","nerve_verify","nerve_assess","nerve_context_curate","nerve_context_rehydrate","nerve_stats","nerve_nervous_event"}
 PROFILE_MARIE_KONDO_TOOLS={"nerve_decide","nerve_rank","nerve_verify","nerve_assess","nerve_stats","nerve_supervise_card","nerve_work_event","nerve_work_status"}
-PROFILE_LEAN_TOOLS={"nerve_decide","nerve_rank","nerve_verify","nerve_assess","nerve_stats","nerve_nervous_event","nerve_supervise_card","nerve_work_event","nerve_work_status"}
+PROFILE_LEAN_TOOLS={"nerve_decide","nerve_stats","nerve_nervous_event","nerve_supervise_card","nerve_work_event","nerve_work_status"}
 
 class Ctx:
  def __init__(self,td,extra=None):self.tools=[];self.hooks=[];self.engine=None;self.td=td;self.extra=extra or {}

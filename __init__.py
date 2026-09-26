@@ -51,11 +51,11 @@ def _register_legacy(ctx):
         laya_base_url=ctx.get_config("reflex_laya_base_url", os.getenv("HERMES_REFLEX_LAYA_BASE_URL", "http://127.0.0.1:8765")),
         laya_model=ctx.get_config("reflex_laya_model", os.getenv("HERMES_REFLEX_LAYA_MODEL", "convaiinnovations/laya-typed-decisions")),
         laya_timeout_seconds=ctx.get_config("reflex_laya_timeout_seconds", os.getenv("HERMES_REFLEX_LAYA_TIMEOUT", 5.0)),
-        laya_token=ctx.get_config("reflex_laya_token", os.getenv("HERMES_REFLEX_LAYA_TOKEN", "")),
+        laya_[REDACTED]("reflex_laya_token", os.getenv("HERMES_REFLEX_LAYA_TOKEN", "")),
         openjev_base_url=ctx.get_config("reflex_openjev_base_url", os.getenv("HERMES_REFLEX_OPENJEV_BASE_URL", "http://127.0.0.1:3000")),
         openjev_model=ctx.get_config("reflex_openjev_model", os.getenv("HERMES_REFLEX_OPENJEV_MODEL", "openjev")),
         openjev_timeout_seconds=ctx.get_config("reflex_openjev_timeout_seconds", os.getenv("HERMES_REFLEX_OPENJEV_TIMEOUT", 10.0)),
-        openjev_token=ctx.get_config("reflex_openjev_token", os.getenv("HERMES_REFLEX_OPENJEV_TOKEN", "")),
+        openjev_[REDACTED]("reflex_openjev_token", os.getenv("HERMES_REFLEX_OPENJEV_TOKEN", "")),
         openjev_expected_identity=ctx.get_config("reflex_openjev_expected_identity", os.getenv("HERMES_REFLEX_OPENJEV_EXPECTED_IDENTITY", "")),
         shadow_backend=ctx.get_config("reflex_shadow_backend", "laya"),
         shadow_async=ctx.get_config("reflex_shadow_async", True),
@@ -267,6 +267,19 @@ def _register_legacy(ctx):
 def _register_profile(ctx):
     policy=resolve_config(ctx.get_config)
     get=policy.get_config
+
+    def profile_default(key, default, **profile_values):
+        """Apply profile runtime defaults without overriding explicit configuration."""
+        marker=object()
+        if key in policy.advanced and policy.advanced[key] is not None:
+            return policy.advanced[key]
+        configured=policy._adapter(key, marker)
+        if configured is not marker and configured is not None:
+            return configured
+        if policy.profile in profile_values:
+            return profile_values[policy.profile]
+        return default
+
     is_kanban_worker=bool(str(os.getenv("HERMES_KANBAN_TASK") or os.getenv("HERMES_KANBAN_TASK_ID") or "").strip())
     headless_worker=is_kanban_worker and bool(get("work_headless_workers",True))
 
@@ -301,7 +314,7 @@ def _register_profile(ctx):
         )
 
     gate.configure(
-        mode=get("gate_mode","off") if policy.enabled("action_gate") else "off",
+        mode=profile_default("gate_mode","advisory") if policy.enabled("action_gate") and not headless_worker else "off",
         min_confidence=get("min_confidence",0.80),
         min_allow_probability=get("min_allow_probability",os.getenv("HERMES_NERVE_MIN_ALLOW_PROBABILITY",0.90)),
         scope=get("gate_scope","selective"),
@@ -313,13 +326,13 @@ def _register_profile(ctx):
     )
     nervous.configure(
         enabled=policy.enabled("nervous") and bool(get("nervous_enabled",True)),
-        admission_enabled=policy.enabled("nervous") and bool(get("nervous_turn_admission",True)),
+        admission_enabled=policy.enabled("nervous") and bool(profile_default("nervous_turn_admission",True,lean=False)),
         mode=get("nervous_mode","correct_next"),
         challenge_confidence=get("nervous_challenge_confidence",0.86),
         call_threshold=get("nervous_call_threshold",0.58),
-        max_provider_calls_per_turn=get("nervous_max_provider_calls_per_turn",96),
-        event_preview_chars=get("nervous_event_preview_chars",1200),
-        retain_recent_events=get("nervous_retain_recent_events",64),
+        max_provider_calls_per_turn=profile_default("nervous_max_provider_calls_per_turn",96,lean=12),
+        event_preview_chars=profile_default("nervous_event_preview_chars",1200,lean=800),
+        retain_recent_events=profile_default("nervous_retain_recent_events",64,lean=32),
         emit_prompt_hint=get("nervous_emit_prompt_hint",False),
         local_learning=policy.enabled("local_learning") and bool(get("nervous_local_learning",True)),
         local_learning_min_samples=get("nervous_local_learning_min_samples",8),
@@ -412,12 +425,16 @@ def _register_profile(ctx):
 
     registrations=[]
     if policy.enabled("reflex"):
-        registrations += [
-            ("nerve_decide",schemas.NERVE_DECIDE,tools.nerve_decide),
-            ("nerve_rank",schemas.NERVE_RANK,tools.nerve_rank),
-            ("nerve_verify",schemas.NERVE_VERIFY,tools.nerve_verify),
-            ("nerve_assess",schemas.NERVE_ASSESS,tools.nerve_assess),
-        ]
+        # Lean keeps Reflex internally but advertises only the smallest explicit
+        # decision surface. Internal nervous/work supervision calls DecisionEngine
+        # directly, so rank/verify/assess schemas are pure prompt overhead here.
+        registrations.append(("nerve_decide",schemas.NERVE_DECIDE,tools.nerve_decide))
+        if policy.profile!="lean":
+            registrations += [
+                ("nerve_rank",schemas.NERVE_RANK,tools.nerve_rank),
+                ("nerve_verify",schemas.NERVE_VERIFY,tools.nerve_verify),
+                ("nerve_assess",schemas.NERVE_ASSESS,tools.nerve_assess),
+            ]
     if policy.enabled("context_governor"):
         registrations += [
             ("nerve_context_curate",schemas.NERVE_CONTEXT_CURATE,tools.nerve_context_curate),
@@ -425,7 +442,10 @@ def _register_profile(ctx):
         ]
     if policy.enabled("receipts"):
         registrations.append(("nerve_stats",schemas.NERVE_STATS,tools.nerve_stats))
-    if policy.enabled("nervous"):
+    # Assistant actions intentionally reuse the existing nervous-event transport.
+    # The transport therefore belongs to either module: custom configurations may
+    # enable durable Assistant loops without enabling the Nervous subsystem.
+    if policy.enabled("nervous") or policy.enabled("assistant_loops"):
         registrations.append(("nerve_nervous_event",schemas.NERVE_NERVOUS_EVENT,tools.nerve_nervous_event))
     if policy.enabled("work_supervision"):
         registrations += [
