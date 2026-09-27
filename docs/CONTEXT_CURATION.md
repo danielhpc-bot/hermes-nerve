@@ -101,7 +101,7 @@ Activation is explicit:
 hermes config set context.engine jev --force
 ```
 
-Modes:
+Modes (`context_engine_mode`; any value other than `apply` or `shadow` falls back to `shadow`):
 
 - `shadow`: builds non-mutating Jev plans while delegating actual pressure-triggered compaction to Hermes' built-in compressor when fallback is available.
 - `apply`: at the configured threshold, Jev evaluates eligible old tool results and anchors safe candidates.
