@@ -1052,6 +1052,12 @@ class JsonlDurabilityTests(unittest.TestCase):
 
 
 class ContextEngineTests(unittest.TestCase):
+    def test_unknown_engine_mode_fails_safe_to_shadow(self):
+        # A typo or unsupported value must never enable destructive apply mode.
+        for mode in ("aply", "Apply-Now", "enabled", "off", "on"):
+            self.assertEqual(NerveContextEngine(mode=mode).mode, "shadow", mode)
+        self.assertEqual(NerveContextEngine(mode=" APPLY ").mode, "apply")
+
     def test_shadow_engine_keeps_builtin_compression_alive(self):
         class Fallback:
             def compress(self, messages, **kwargs):
