@@ -141,7 +141,8 @@ class NerveContextEngine(ContextEngine):
     ) -> None:
         self.mode = str(mode or "shadow").strip().lower()
         if self.mode not in {"apply", "shadow"}:
-            self.mode = "apply"
+            # Fail safe: only an explicit "apply" may enable destructive curation.
+            self.mode = "shadow"
         self.threshold_percent = max(0.30, min(0.95, float(threshold_percent)))
         self.protect_first_n = max(0, int(protect_first_n))
         self.protect_last_n = max(1, int(protect_last_n))
