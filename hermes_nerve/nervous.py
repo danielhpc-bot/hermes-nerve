@@ -14,6 +14,7 @@ action from running indefinitely even if remote supervision arrives late.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import queue
@@ -176,7 +177,7 @@ class NervousSystem:
         self._lock = threading.RLock()
         self._turns: dict[str, TurnState] = {}
         self._session_turn: dict[str, str] = {}
-        self._tasks: queue.Queue[tuple[str, dict[str, Any]]] = queue.Queue()
+        self._tasks: queue.Queue[tuple[str, dict[str, Any], contextvars.Context]] = queue.Queue()
         self._worker: threading.Thread | None = None
         self._stopping = False
         self._metrics: Counter[str] = Counter()
@@ -256,17 +257,25 @@ class NervousSystem:
             if self._worker is worker and (worker is None or not worker.is_alive()):
                 self._worker = None
 
+    def _dispatch_task(self, kind: str, payload: dict[str, Any]) -> None:
+        if kind == "admit":
+            self._do_admission(payload)
+        elif kind == "assess":
+            self._do_assessment(payload)
+
     def _run(self) -> None:
         while not self._stopping:
             try:
-                kind, payload = self._tasks.get(timeout=0.25)
+                kind, payload, task_ctx = self._tasks.get(timeout=0.25)
             except queue.Empty:
                 continue
             try:
-                if kind == "admit":
-                    self._do_admission(payload)
-                elif kind == "assess":
-                    self._do_assessment(payload)
+                # Run under the caller's captured context so profile-scoped
+                # secrets (Hermes ContextVars) survive the thread hop (#35).
+                # Captured per task, NOT per worker: one worker serves many
+                # profiles, so a worker-lifetime capture would run later
+                # profiles under the first profile's scope.
+                task_ctx.run(self._dispatch_task, kind, payload)
             except Exception as exc:  # background supervision must never crash Hermes
                 self._metrics["worker_errors"] += 1
                 self._log("worker_error", {"kind": kind, "error": str(exc)[:500]})
@@ -318,7 +327,7 @@ class NervousSystem:
             self._metrics["turns_started"] += 1
         self._log("turn_start", {"turn_id": tid, "session_id": session_id, "prompt_sha256": state.user_message_hash})
         if self._config.admission_enabled:
-            self._tasks.put(("admit", {"turn_id": tid, "user_message": user_message}))
+            self._tasks.put(("admit", {"turn_id": tid, "user_message": user_message}, contextvars.copy_context()))
         else:
             with self._lock:
                 state.admission = "ON"
@@ -623,7 +632,7 @@ class NervousSystem:
                 if episode:
                     episode.provider_evaluations += 1
 
-        self._tasks.put(("assess", {"turn_id": state.turn_id, "event": clean, "router": route.as_dict()}))
+        self._tasks.put(("assess", {"turn_id": state.turn_id, "event": clean, "router": route.as_dict()}, contextvars.copy_context()))
         return {"accepted": True, "forwarded": True, "admission": admission, "router": route.as_dict()}
 
     def observe_tool_call(self, **kwargs: Any) -> dict[str, Any]:
@@ -1011,7 +1020,7 @@ class NervousSystem:
                         self._metrics["events_forwarded"] += 1
                         batch_payload = {"turn_id": tid, "event": batch_event, "router": {"reasons": ["adaptive-batch"], "score": 1.0}}
             if batch_payload is not None:
-                self._tasks.put(("assess", batch_payload))
+                self._tasks.put(("assess", batch_payload, contextvars.copy_context()))
 
     def _assessment_state(self, state: TurnState, event: dict[str, Any]) -> dict[str, Any]:
         failure_episode = None
