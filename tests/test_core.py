@@ -1031,6 +1031,22 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
                 ledger.rehydrate("e-hash")
         ledger.configure(enabled=False, detail="sanitized")
 
+    def test_stats_accepts_every_advertised_section(self):
+        # The tool schema is the contract the model sees: every section it offers must be served.
+        from hermes_nerve import schemas
+
+        advertised = schemas.NERVE_STATS["parameters"]["properties"]["section"]["enum"]
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {
+            "HERMES_NERVE_RECEIPTS": str(Path(td) / "receipts.jsonl"),
+            "HERMES_NERVE_GATE_EVENTS": str(Path(td) / "gate.jsonl"),
+            "HERMES_NERVE_CONTEXT_LEDGER": str(Path(td) / "ledger.jsonl"),
+            "HERMES_NERVE_NERVOUS_EVENTS": str(Path(td) / "nervous.jsonl"),
+            "HERMES_NERVE_OUTCOMES": str(Path(td) / "outcomes.jsonl"),
+        }, clear=False):
+            for section in advertised:
+                payload = json.loads(tools.nerve_stats({"section": section}))
+                self.assertTrue(payload.get("ok"), (section, payload.get("error")))
+
 
 class JsonlDurabilityTests(unittest.TestCase):
     def test_parallel_appends_remain_parseable(self):
