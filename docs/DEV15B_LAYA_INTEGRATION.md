@@ -59,7 +59,7 @@ Existing behavior. This is the default so merging dev15b does not silently alter
 ```yaml
 plugins:
   entries:
-    hermes-nerve:
+    nerve:
       settings:
         reflex_backend: jev
 ```
@@ -72,7 +72,7 @@ Laya failures never change the returned Jev result.
 ```yaml
 plugins:
   entries:
-    hermes-nerve:
+    nerve:
       settings:
         reflex_backend: shadow
         reflex_laya_base_url: http://127.0.0.1:8765
@@ -101,7 +101,7 @@ Laya is authoritative for semantic `DecisionEngine` calls.
 ```yaml
 plugins:
   entries:
-    hermes-nerve:
+    nerve:
       settings:
         reflex_backend: laya
         reflex_laya_base_url: http://127.0.0.1:8765

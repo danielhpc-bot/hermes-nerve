@@ -115,7 +115,7 @@ If no eligible tool-result evidence exists, or Jev safely decides to reclaim not
 Disable only for experiments:
 
 ```bash
-hermes config set plugins.entries.hermes-nerve.settings.context_engine_fallback_builtin false --force
+hermes config set plugins.entries.nerve.settings.context_engine_fallback_builtin false --force
 ```
 
 ## Policy defaults

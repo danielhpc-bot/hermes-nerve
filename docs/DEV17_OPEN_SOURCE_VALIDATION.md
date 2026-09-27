@@ -87,6 +87,8 @@ OpenJev weights are CC BY-NC 4.0. The helper/serve code is Apache-2.0. Nerve dev
 ~/.hermes/hermes-agent/venv/bin/python scripts/configure_reflex_profile.py PROFILE --backend openjev
 ```
 
+The script writes `plugins.entries.nerve.settings`: `--backend` plus only the options you pass. Settings you omit keep their current values. Settings with no value anywhere use Nerve's defaults and `HERMES_REFLEX_*` environment fallbacks when the plugin loads. Pass an option explicitly, for example `--laya-base-url` or `--openjev-expected-identity`, to change it.
+
 Shadow mode keeps hosted Jev authoritative while recording a selected open backend:
 
 ```bash

@@ -35,6 +35,34 @@ except ImportError:
 
 logger=logging.getLogger("hermes_nerve")
 
+# Earlier Nerve docs and scripts wrote this namespace. Hermes reads a plugin's settings
+# only from its own entry, plugins.entries.<plugin id> (settings, then the older config
+# subtree), and the plugin id is "nerve".
+_LEGACY_SETTINGS_ENTRY = "hermes-nerve"
+
+
+def _warn_if_legacy_settings_ignored(ctx):
+    """Warn when config.yaml still holds settings Hermes never passes to Nerve."""
+    plugin_id = str(getattr(ctx, "plugin_id", "") or "nerve")
+    if plugin_id == _LEGACY_SETTINGS_ENTRY:
+        return
+    try:
+        from hermes_cli.config import load_config_readonly
+        entries = ((load_config_readonly() or {}).get("plugins") or {}).get("entries") or {}
+    except Exception:
+        return  # Outside a Hermes host there is no config.yaml to inspect.
+    legacy = entries.get(_LEGACY_SETTINGS_ENTRY) if isinstance(entries, dict) else None
+    if not isinstance(legacy, dict):
+        return
+    settings = legacy.get("settings")
+    keys = sorted(str(key) for key in settings) if isinstance(settings, dict) else []
+    shown = ", ".join(keys[:8]) or "none"
+    logger.warning(
+        "config.yaml has plugins.entries.%s, which Hermes never passes to Nerve; those settings "
+        "(%s) are ignored. Move them to plugins.entries.%s.settings.",
+        _LEGACY_SETTINGS_ENTRY, shown, plugin_id,
+    )
+
 
 def _register_legacy(ctx):
     is_kanban_worker = bool(
@@ -568,6 +596,7 @@ def register(ctx):
             "registered by the plugin system as 'jev': set context.engine: jev."
         )
         return None
+    _warn_if_legacy_settings_ignored(ctx)
     policy = resolve_config(ctx.get_config)
     if policy.profile == "legacy":
         return _register_legacy(ctx)
