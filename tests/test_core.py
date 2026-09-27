@@ -843,6 +843,26 @@ class ProvenanceAndLedgerTests(unittest.TestCase):
             self.assertNotIn("abcdefghijklmnop", rows[0]["content"])
         ledger.configure(enabled=False, detail="sanitized")
 
+    def test_post_tool_observer_records_the_hook_session_id(self):
+        # Hermes passes session_id to every post_tool_call hook. The observer must
+        # use it rather than a process global that only the context engine sets
+        # and that concurrent gateway sessions would overwrite.
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"HERMES_NERVE_CONTEXT_LEDGER": str(Path(td) / "ledger.jsonl")}, clear=False):
+            ledger.configure(enabled=True, detail="sanitized")
+            ledger.set_session("engine-session")
+            try:
+                ledger.observe_tool_call(tool_name="read_file", args={"path": "a"}, result="alpha", session_id="hook-session")
+                # Hermes sends "" when a tool call has no session; that must not be
+                # attributed to whichever session last set the process-wide value.
+                ledger.observe_tool_call(tool_name="read_file", args={"path": "b"}, result="beta", session_id="")
+                # Hosts that do not pass session_id at all keep the process-wide value.
+                ledger.observe_tool_call(tool_name="read_file", args={"path": "c"}, result="gamma")
+                rows = [json.loads(x) for x in Path(os.environ["HERMES_NERVE_CONTEXT_LEDGER"]).read_text().splitlines()]
+                self.assertEqual([row["session_id"] for row in rows], ["hook-session", "", "engine-session"])
+            finally:
+                ledger.set_session("")
+        ledger.configure(enabled=False, detail="sanitized")
+
 
     def test_profile_report_home_infers_named_profile_from_plugin_path(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
