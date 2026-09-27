@@ -9,7 +9,10 @@ try:
     from .hermes_nerve import assistant, client, context, gate, ledger, nervous, receipts, schemas, tools
     from .hermes_nerve import reflex
     from .hermes_nerve.config_resolver import resolve_config
-    from .hermes_nerve.context_engine import NerveContextEngine
+    # Import the module, not the class: Hermes' context-engine directory loader
+    # instantiates any ContextEngine subclass it finds on this package, which would
+    # yield an engine that cannot read Nerve settings.
+    from .hermes_nerve import context_engine as nerve_context_engine
     from .hermes_nerve.provenance import VERSION
     from .hermes_nerve.remote import control as remote_control
     from .hermes_nerve.remote import runtime as remote_runtime
@@ -21,7 +24,7 @@ except ImportError:
     from hermes_nerve import assistant, client, context, gate, ledger, nervous, receipts, schemas, tools
     from hermes_nerve import reflex
     from hermes_nerve.config_resolver import resolve_config
-    from hermes_nerve.context_engine import NerveContextEngine
+    from hermes_nerve import context_engine as nerve_context_engine
     from hermes_nerve.provenance import VERSION
     from hermes_nerve.remote import control as remote_control
     from hermes_nerve.remote import runtime as remote_runtime
@@ -234,7 +237,7 @@ def _register_legacy(ctx):
     ctx.register_hook("on_session_end", _session_end)
 
     if not headless_worker and bool(ctx.get_config("context_engine_register", True)) and hasattr(ctx, "register_context_engine"):
-        ctx.register_context_engine(NerveContextEngine(
+        ctx.register_context_engine(nerve_context_engine.NerveContextEngine(
             mode=ctx.get_config("context_engine_mode", "shadow"),
             threshold_percent=ctx.get_config("context_engine_threshold_percent", 0.72),
             protect_first_n=ctx.get_config("context_engine_protect_first_n", 3),
@@ -528,7 +531,7 @@ def _register_profile(ctx):
         ctx.register_hook("on_session_end",_session_end)
 
     if not headless_worker and policy.enabled("context_governor") and bool(get("context_engine_register",True)) and hasattr(ctx,"register_context_engine"):
-        ctx.register_context_engine(NerveContextEngine(
+        ctx.register_context_engine(nerve_context_engine.NerveContextEngine(
             mode=get("context_engine_mode","shadow"),
             threshold_percent=get("context_engine_threshold_percent",0.72),
             protect_first_n=get("context_engine_protect_first_n",3),
@@ -554,6 +557,17 @@ def _register_profile(ctx):
 
 def register(ctx):
     """Register exact v0.2.3 Legacy behavior or the selected modular profile."""
+    if not callable(getattr(ctx, "get_config", None)):
+        # Hermes' context-engine directory loader (context.engine naming this plugin's
+        # directory) passes a collector that cannot read plugin settings. Anything
+        # registered here would silently run on defaults.
+        logger.warning(
+            "Nerve was loaded by a registration context that cannot read plugin settings, "
+            "such as Hermes' context-engine directory loader when context.engine names the "
+            "plugin directory. Nothing was registered here. Nerve's context engine is "
+            "registered by the plugin system as 'jev': set context.engine: jev."
+        )
+        return None
     policy = resolve_config(ctx.get_config)
     if policy.profile == "legacy":
         return _register_legacy(ctx)
