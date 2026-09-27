@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 — profiles, modular runtime, and release hardening
+
+- Add `nerve setup` with Full Configuration, Fat Cat, Operator, Lean, Marie Kondo, Custom, and explicit Legacy behavior.
+- Make named profiles control the actual runtime surface: disabled modules omit their tools, hooks, optional provider paths, and context engines where applicable; headless Kanban workers remain schema-minimal.
+- Add profile-aware Action Gate defaults, dependency pruning, runtime-disable truthfulness, and reason reporting so resolved capability state matches actual runtime behavior.
+- Add Assistant Accountability with durable loop state, bounded audit/review flows, explicit operator-owned enable/disable authority, concurrency fencing, and fail-closed persistence recovery.
+- Add optional HermesContextBus v0.2 Shared Context integration with compatibility/health checks, explicit replacement, symlink protections, rollback-safe installation, and coordination-only authority.
+- Harden profile persistence and recovery: atomic primary/backup handling, exact rollback/snapshot restoration, stale-backup cleanup, same-profile advanced-setting preservation, and explicit reset semantics.
+- Harden profile-home and report-path trust boundaries against nested/vendor/unmarked profile hijacking while preserving legitimate fresh and alternate-root profiles.
+- Strip unrelated parent Kanban identity from local remote-runner subprocesses and make remote-execution regression fixtures independent of executable-/tmp sandbox policy.
+- Add explicit setuptools package discovery so release wheels contain the intended `hermes_nerve*` and compatibility `hermes_jev*` packages only.
+- Final release qualification: 310/310 pytest in clean and hostile Kanban environments, Python 3.10–3.14 GitHub CI, Hermes plugin validate/doctor, 69/69 structured release checks, and 6/6 deliberate regression mutations caught.
+
 ## 0.2.3 — provider-contract and gate hardening
 
 - Fix provider cost visibility so missing provider-reported cost remains unknown instead of being silently reported as zero, while preserving explicit zero-cost responses.

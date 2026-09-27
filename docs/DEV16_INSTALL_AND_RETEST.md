@@ -1,6 +1,6 @@
 # Nerve v0.2.2.dev16 — nerve observer + token-budget DoD
 
-> **Historical dev16 note.** This document records the dev16 experiment and is not the current v0.2.3 setup or release guide. Use `docs/SETUP.md` for current setup and `bash scripts/verify_dev17.sh` for the canonical release gate.
+> **Historical dev16 note.** This document records the dev16 experiment and is not the current v0.3.0 setup or release guide. Use `docs/SETUP.md` for current setup and `bash scripts/verify_dev17.sh` for the canonical release gate.
 
 Dev16 starts from the finalized dev15 controller-completion build and incorporates the failure modes and quality-of-life issues exposed by the dev14 Solar Pro 4 A/B sessions.
 
