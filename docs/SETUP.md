@@ -1,4 +1,4 @@
-# Nerve v0.2.3 setup
+# Nerve v0.3.0 setup
 
 ## Install
 
@@ -84,7 +84,7 @@ Bare `nerve setup` opens the five-choice interactive selector. Full Configuratio
 $HERMES_HOME/nerve/profile.json
 ```
 
-If the sidecar is absent and no `nerve_profile` plugin setting exists, Nerve preserves current v0.2.3/Legacy registration behavior.
+If the sidecar is absent and no `nerve_profile` plugin setting exists, Nerve preserves v0.2.3-compatible Legacy registration behavior.
 
 The module layer is resolved before plugin registration. A disabled module does not register its owned Hermes tool schemas or hooks. Important initial profile choices are:
 
