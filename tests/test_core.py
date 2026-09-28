@@ -659,10 +659,21 @@ class GateTests(unittest.TestCase):
 
 class RegistrationTests(unittest.TestCase):
     def setUp(self):
-        # These tests exercise the controller/non-headless registration surface.
+        # Registration tests must not inherit the developer's persisted Nerve
+        # profile or an ambient worker identity from the host running the suite.
+        self._hermes_home = tempfile.TemporaryDirectory()
+        self.addCleanup(self._hermes_home.cleanup)
         env = patch.dict(
             os.environ,
-            {"HERMES_KANBAN_TASK": "", "HERMES_KANBAN_TASK_ID": ""},
+            {
+                "HERMES_HOME": self._hermes_home.name,
+                "HERMES_KANBAN_TASK": "",
+                "HERMES_KANBAN_TASK_ID": "",
+                "PAPERCLIP_TASK_ID": "",
+                "PAPERCLIP_RUN_ID": "",
+                "PAPERCLIP_AGENT_ROLE": "",
+                "HERMES_NERVE_RUNTIME_PROFILE": "",
+            },
             clear=False,
         )
         env.start()
