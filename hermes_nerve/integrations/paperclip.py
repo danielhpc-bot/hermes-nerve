@@ -87,4 +87,10 @@ def runtime_profile_override(
     mapped = PAPERCLIP_ROLE_PROFILES.get(role)
     if mapped:
         return RuntimeProfileOverride(mapped, "paperclip-role")
+
+    # Paperclip documents task/run/agent identity variables, but not an agent-role
+    # variable. A task-triggered worker therefore defaults to Lean supervision;
+    # directors/reviewers can set HERMES_NERVE_RUNTIME_PROFILE explicitly.
+    if _clean(source.get("PAPERCLIP_TASK_ID")) and _clean(source.get("PAPERCLIP_RUN_ID")):
+        return RuntimeProfileOverride("lean", "paperclip-task-default")
     return None
