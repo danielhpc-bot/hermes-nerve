@@ -7,6 +7,7 @@ from typing import Any, Callable, Mapping
 
 from .modules import MODULES
 from .profiles import PROFILES, load_profile, normalize_profile_name, validate_profile
+from .integrations.paperclip import runtime_profile_override
 
 
 @dataclass
@@ -43,7 +44,7 @@ def _parse_module_overrides(value: Any) -> dict[str, bool]:
     return {str(k): v for k, v in value.items()}
 
 
-def resolve_config(get_config: Callable | None = None, *, home=None, profile: dict | None = None) -> ResolvedNerveConfig:
+def resolve_config(get_config: Callable | None = None, *, home=None, profile: dict | None = None, runtime_profile: str | None = None) -> ResolvedNerveConfig:
     """Resolve defaults -> selected profile -> same-source overrides -> advanced settings.
 
     No sidecar and no explicit Hermes ``nerve_profile`` means exact Legacy mode.
@@ -53,11 +54,20 @@ def resolve_config(get_config: Callable | None = None, *, home=None, profile: di
     getter = get_config or (lambda key, default=None: default)
     document = load_profile(home) if profile is None else validate_profile(profile)
 
+    override = normalize_profile_name(runtime_profile)
+    if not override:
+        detected = runtime_profile_override()
+        override = detected.profile if detected else ""
     configured_profile = normalize_profile_name(getter("nerve_profile", ""))
     configured_modules = _parse_module_overrides(getter("nerve_modules", None))
     sidecar_name = document["nerve_profile"] if document else ""
 
-    if configured_profile:
+    if override:
+        if override not in PROFILES:
+            raise ValueError(f"Unknown runtime Nerve profile: {override}")
+        name = override
+        use_sidecar_values = False
+    elif configured_profile:
         if configured_profile not in PROFILES:
             raise ValueError(f"Unknown Nerve profile: {configured_profile}")
         name = configured_profile
