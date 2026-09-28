@@ -94,6 +94,19 @@ class PaperclipAuthorityTests(unittest.TestCase):
         self.assertIn("different run", outcome.reason)
         self.assertFalse(any(call[0] == "PATCH" for call in transport.calls))
 
+    def test_already_in_review_is_success_even_if_reviewer_owns_new_checkout(self):
+        transport = FakeTransport()
+        transport.issue["status"] = "in_review"
+        transport.issue["checkoutRunId"] = "review-run"
+        transport.issue["assigneeAgentId"] = "reviewer-1"
+        outcome = build(transport).request_review(
+            CompletionVerdict(True, "PASS", 1.0, "verified")
+        )
+        self.assertTrue(outcome.local_pass)
+        self.assertTrue(outcome.remote_updated)
+        self.assertEqual(outcome.reason, "already handed off")
+        self.assertFalse(any(call[0] == "PATCH" for call in transport.calls))
+
 
 if __name__ == "__main__":
     unittest.main()
