@@ -21,6 +21,16 @@ DEFAULT_CANDIDATES = {  # the validation fixture
 }
 
 def main():
+    # convenience: if provider creds aren't exported, load the Hermes env file
+    # (same keys: MUNA_API_BASE, MUNA_API_KEY, NOUS_API_TOKEN)
+    import os
+    if not os.environ.get("NOUS_API_TOKEN") or not os.environ.get("MUNA_API_KEY"):
+        env_file = Path.home() / ".hermes/profiles/freebrain/.env"
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                if "=" in line and not line.strip().startswith("#"):
+                    k, _, v = line.partition("=")
+                    os.environ.setdefault(k.strip(), v.strip())
     ap = argparse.ArgumentParser()
     ap.add_argument("question")
     ap.add_argument("--url", action="append", default=[], help="Name=URL (repeatable)")
