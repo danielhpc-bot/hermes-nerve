@@ -76,7 +76,7 @@ class Dev7HeadlessBindingTests(unittest.TestCase):
     def setUp(self):
         runtime.set_supervisor_for_tests(None, enabled_value=False)
         # Ambient dispatcher identity must not override each test's explicit task.
-        env = patch.dict(os.environ, {"HERMES_KANBAN_TASK_ID": ""}, clear=False)
+        env = patch.dict(os.environ, {"HERMES_KANBAN_TASK_ID": "", "PAPERCLIP_TASK_ID": "", "PAPERCLIP_RUN_ID": "", "PAPERCLIP_AGENT_ROLE": "", "HERMES_NERVE_RUNTIME_PROFILE": ""}, clear=False)
         env.start()
         self.addCleanup(env.stop)
 
@@ -95,6 +95,7 @@ class Dev7HeadlessBindingTests(unittest.TestCase):
                 "HERMES_KANBAN_BOARD": "should-not-win",
                 "HERMES_KANBAN_WORKSPACE": td,
                 "HERMES_PROFILE": "abtest-jev-v7",
+                "HERMES_HOME": str(root),
             }
             with patch.dict(sys.modules, {
                 "hermes_cli": pkg,
