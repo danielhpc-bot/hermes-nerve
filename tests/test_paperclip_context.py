@@ -36,6 +36,13 @@ class PaperclipContextTests(unittest.TestCase):
         )
         self.assertFalse(hasattr(ctx, "api_key"))
 
+    def test_non_task_heartbeat_is_not_supervised_work(self):
+        self.assertIsNone(detect_paperclip_context({
+            "PAPERCLIP_COMPANY_ID": "c1",
+            "PAPERCLIP_RUN_ID": "run-9",
+            "PAPERCLIP_AGENT_ID": "agent-2",
+        }))
+
     def test_partial_context_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "PAPERCLIP_RUN_ID"):
             detect_paperclip_context({
