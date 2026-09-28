@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from .authority import WorkIdentity
+from .models import CompletionVerdict
+
 
 class CanonicalKanbanAdapter:
     """Thin adapter over Hermes' canonical kanban_db API.
@@ -69,3 +72,52 @@ class CanonicalKanbanAdapter:
                     expected_run_id=int(expected_run_id),
                 )
             )
+
+
+class HermesKanbanAuthority:
+    """Expose canonical Hermes Kanban review as a WorkAuthority."""
+
+    def __init__(
+        self,
+        *,
+        task_id: str,
+        run_id: int,
+        adapter: CanonicalKanbanAdapter | None = None,
+        reviewer: str = "",
+    ) -> None:
+        self.task_id = str(task_id)
+        self.run_id = int(run_id)
+        self.adapter = adapter or CanonicalKanbanAdapter()
+        self.reviewer = str(reviewer or "")
+
+    def identity(self) -> WorkIdentity:
+        return WorkIdentity("hermes_kanban", self.task_id, str(self.run_id))
+
+    def request_review(
+        self,
+        result: CompletionVerdict,
+        *,
+        summary: str = "",
+        evidence: tuple[str, ...] = (),
+    ):
+        if not result.allow:
+            return False, "verification failed"
+        metadata = {
+            "hermes_nerve": {
+                "verified": True,
+                "receipt_id": str(result.receipt_id or ""),
+                "confidence": float(result.confidence or 0.0),
+                "evidence": list(evidence),
+            }
+        }
+        return self.adapter.request_review(
+            task_id=self.task_id,
+            expected_run_id=self.run_id,
+            summary=str(summary or result.reason),
+            metadata=metadata,
+            reviewer=self.reviewer,
+        )
+
+    def report_blocked(self, reason: str):
+        # Existing Kanban block authority remains with Hermes lifecycle tools.
+        return False, str(reason or "")
