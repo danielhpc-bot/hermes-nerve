@@ -18,6 +18,7 @@ try:
     from .hermes_nerve.remote import runtime as remote_runtime
     from .hermes_nerve.remote import tools as remote_tools
     from .hermes_nerve.work import hooks as work_hooks
+    from .hermes_nerve.work import paperclip_runtime as work_paperclip_runtime
     from .hermes_nerve.work import runtime as work_runtime
     from .hermes_nerve.work import tools as work_tools
 except ImportError:
@@ -30,6 +31,7 @@ except ImportError:
     from hermes_nerve.remote import runtime as remote_runtime
     from hermes_nerve.remote import tools as remote_tools
     from hermes_nerve.work import hooks as work_hooks
+    from hermes_nerve.work import paperclip_runtime as work_paperclip_runtime
     from hermes_nerve.work import runtime as work_runtime
     from hermes_nerve.work import tools as work_tools
 
@@ -68,7 +70,13 @@ def _register_legacy(ctx):
     is_kanban_worker = bool(
         str(os.getenv("HERMES_KANBAN_TASK") or os.getenv("HERMES_KANBAN_TASK_ID") or "").strip()
     )
-    headless_worker = is_kanban_worker and bool(ctx.get_config("work_headless_workers", True))
+    is_paperclip_worker = bool(
+        str(os.getenv("PAPERCLIP_TASK_ID") or "").strip()
+        and str(os.getenv("PAPERCLIP_RUN_ID") or "").strip()
+    )
+    headless_worker = (is_kanban_worker or is_paperclip_worker) and bool(
+        ctx.get_config("work_headless_workers", True)
+    )
     legacy_model = ctx.get_config("model_id", "typesafe/jev-1.13")
     client.configure(
         provider=ctx.get_config("jev_provider", "openrouter"),
@@ -180,7 +188,15 @@ def _register_legacy(ctx):
     # overhead. Later hooks refresh the session id but do not own bootstrap.
     startup_identity = None
     if headless_worker and work_runtime.enabled():
-        startup_identity = work_hooks.bootstrap_kanban_worker()
+        if is_paperclip_worker:
+            try:
+                startup_identity = work_paperclip_runtime.bootstrap_paperclip_worker(
+                    work_runtime.supervisor()
+                )
+            except Exception as exc:
+                logger.warning("Nerve Paperclip startup binding failed: %s: %s", type(exc).__name__, exc)
+        else:
+            startup_identity = work_hooks.bootstrap_kanban_worker()
 
     remote_runtime.configure(
         hosts=ctx.get_config("remote_hosts", {}),
@@ -312,7 +328,8 @@ def _register_profile(ctx):
         return default
 
     is_kanban_worker=bool(str(os.getenv("HERMES_KANBAN_TASK") or os.getenv("HERMES_KANBAN_TASK_ID") or "").strip())
-    headless_worker=is_kanban_worker and bool(get("work_headless_workers",True))
+    is_paperclip_worker=bool(str(os.getenv("PAPERCLIP_TASK_ID") or "").strip() and str(os.getenv("PAPERCLIP_RUN_ID") or "").strip())
+    headless_worker=(is_kanban_worker or is_paperclip_worker) and bool(get("work_headless_workers",True))
 
     # Provider initialization is skipped only when every provider-backed module is off.
     provider_needed=any(policy.enabled(x) for x in ("reflex","nervous","work_supervision","action_gate","context_governor","assistant_loops","assistant_audit"))
@@ -441,7 +458,15 @@ def _register_profile(ctx):
 
     startup_identity=None
     if headless_worker and policy.enabled("work_supervision") and work_runtime.enabled():
-        startup_identity=work_hooks.bootstrap_kanban_worker()
+        if is_paperclip_worker:
+            try:
+                startup_identity=work_paperclip_runtime.bootstrap_paperclip_worker(
+                    work_runtime.supervisor()
+                )
+            except Exception as exc:
+                logger.warning("Nerve Paperclip startup binding failed: %s: %s",type(exc).__name__,exc)
+        else:
+            startup_identity=work_hooks.bootstrap_kanban_worker()
 
     if policy.enabled("remote_workers"):
         remote_runtime.configure(
