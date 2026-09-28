@@ -75,7 +75,7 @@ class PaperclipVerticalSliceTests(unittest.TestCase):
             )
             description = (
                 "## Definition of Done\n"
-                "- \`python -m unittest discover -s tests -q\` exits 0.\n"
+                "- `python -m unittest discover -s tests -q` exits 0.\n"
             )
             remote = FakePaperclip(description)
             supervisor = self._supervisor(root)
@@ -144,7 +144,7 @@ class PaperclipVerticalSliceTests(unittest.TestCase):
             )
             remote = FakePaperclip(
                 "## Definition of Done\n"
-                "- \`python -m unittest discover -s tests -q\` exits 0.\n"
+                "- `python -m unittest discover -s tests -q` exits 0.\n"
             )
             supervisor = self._supervisor(root)
             paperclip_runtime.bootstrap_paperclip_worker(
@@ -169,7 +169,7 @@ class PaperclipVerticalSliceTests(unittest.TestCase):
             )
             remote = FakePaperclip(
                 "## Definition of Done\n"
-                "- \`python -m unittest discover -s tests -q\` exits 0.\n",
+                "- `python -m unittest discover -s tests -q` exits 0.\n",
                 timeout_after_commit=True,
             )
             supervisor = self._supervisor(root)
