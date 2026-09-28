@@ -332,6 +332,13 @@ def _identity(task_id: str | None = None, *, session_id: str = ""):
     identity = runtime_identity_from_env(task_id or os.getenv("HERMES_KANBAN_TASK") or None)
     if identity is not None:
         return identity
+    try:
+        from .paperclip_runtime import current_identity as paperclip_identity
+        identity = paperclip_identity()
+    except Exception:
+        identity = None
+    if identity is not None:
+        return identity
     if not enabled():
         return None
     try:
@@ -483,6 +490,19 @@ def pre_tool_call(tool_name: str, args: dict, task_id: str | None = None, sessio
         return None
     sup = supervisor()
     name = str(tool_name or "")
+
+    try:
+        from . import paperclip_runtime
+        if paperclip_runtime.owns(identity) and name in {
+            "kanban_complete", "kanban_block", "kanban_request_review", "kanban_request_changes"
+        }:
+            return {
+                "action": "block",
+                "message": "This run is governed by Paperclip issue lifecycle; Nerve will request review after verified completion.",
+                "rule_key": "nerve:paperclip-lifecycle",
+            }
+    except Exception:
+        pass
 
     # A controller-owned dispatch re-enters Hermes' normal tool pipeline. Let
     # that exact recursive kanban_complete invocation through; all model-originated
@@ -969,10 +989,15 @@ def pre_verify(*, task_id: str = "", session_id: str = "", **kwargs: Any):
     identity = _identity(task_id or None, session_id=session_id)
     if identity is None:
         return None
-    # Without the controller dispatcher, preserve the dev14 authority fence. With
-    # it, hook/controller authority is distinct from model/worker authority: the
-    # hook may close a verified run even when the model itself is child-fenced.
-    if not tool_dispatcher_available() and not _owns_kanban_terminal_authority():
+    try:
+        from . import paperclip_runtime
+        is_paperclip = paperclip_runtime.owns(identity)
+    except Exception:
+        is_paperclip = False
+
+    # Paperclip owns its issue lifecycle through its API, not kanban_complete.
+    # Kanban retains the historical controller-dispatch authority fence.
+    if not is_paperclip and not tool_dispatcher_available() and not _owns_kanban_terminal_authority():
         return None
     sup = supervisor()
     proposal = {
@@ -981,6 +1006,37 @@ def pre_verify(*, task_id: str = "", session_id: str = "", **kwargs: Any):
         "turn_id": kwargs.get("turn_id"),
         "exit_reason": kwargs.get("exit_reason"),
     }
+
+    if is_paperclip:
+        try:
+            verdict = sup.verify_completion(identity, proposal=proposal)
+        except Exception as exc:
+            return {
+                "action": "continue",
+                "message": f"Nerve Paperclip completion verification failed: {type(exc).__name__}: {exc}",
+            }
+        if not verdict.allow:
+            missing = f" Missing: {', '.join(verdict.missing_criteria)}" if verdict.missing_criteria else ""
+            return {
+                "action": "continue",
+                "message": f"Nerve completion gate: {verdict.reason}{missing}",
+            }
+        outcome = paperclip_runtime.request_review(
+            sup,
+            identity,
+            verdict,
+            summary=str(proposal.get("final_response") or proposal.get("response") or verdict.reason),
+        )
+        if outcome.remote_updated:
+            return None
+        return {
+            "action": "continue",
+            "message": (
+                "Nerve verified completion locally, but Paperclip review handoff is pending: "
+                + outcome.reason
+            ),
+            "rule_key": "nerve:paperclip-review-pending",
+        }
 
     try:
         control = sup.control_for_run(identity)
