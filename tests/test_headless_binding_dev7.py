@@ -75,8 +75,23 @@ def split_hermes_modules(captured: dict):
 class Dev7HeadlessBindingTests(unittest.TestCase):
     def setUp(self):
         runtime.set_supervisor_for_tests(None, enabled_value=False)
-        # Ambient dispatcher identity must not override each test's explicit task.
-        env = patch.dict(os.environ, {"HERMES_KANBAN_TASK_ID": "", "PAPERCLIP_TASK_ID": "", "PAPERCLIP_RUN_ID": "", "PAPERCLIP_AGENT_ROLE": "", "HERMES_NERVE_RUNTIME_PROFILE": ""}, clear=False)
+        # These tests exercise registration semantics, not the operator's live
+        # persisted Nerve profile. Isolate HERMES_HOME so a real profile sidecar
+        # cannot silently disable work supervision during local verification.
+        self._hermes_home = tempfile.TemporaryDirectory()
+        self.addCleanup(self._hermes_home.cleanup)
+        env = patch.dict(
+            os.environ,
+            {
+                "HERMES_HOME": self._hermes_home.name,
+                "HERMES_KANBAN_TASK_ID": "",
+                "PAPERCLIP_TASK_ID": "",
+                "PAPERCLIP_RUN_ID": "",
+                "PAPERCLIP_AGENT_ROLE": "",
+                "HERMES_NERVE_RUNTIME_PROFILE": "",
+            },
+            clear=False,
+        )
         env.start()
         self.addCleanup(env.stop)
 
