@@ -73,6 +73,14 @@ class PaperclipContextTests(unittest.TestCase):
         self.assertEqual(runtime_profile_override({"PAPERCLIP_AGENT_ROLE": "reviewer"}).profile, "fat_cat")
         self.assertIsNone(runtime_profile_override({"PAPERCLIP_AGENT_ROLE": "unknown"}))
 
+    def test_task_worker_defaults_to_lean_without_nonstandard_role_env(self):
+        override = runtime_profile_override({
+            "PAPERCLIP_TASK_ID": "issue-7",
+            "PAPERCLIP_RUN_ID": "run-9",
+        })
+        self.assertEqual(override.profile, "lean")
+        self.assertEqual(override.source, "paperclip-task-default")
+
     def test_unknown_explicit_runtime_profile_rejected(self):
         with self.assertRaisesRegex(ValueError, "Unknown runtime Nerve profile"):
             runtime_profile_override({"HERMES_NERVE_RUNTIME_PROFILE": "turbo"})
