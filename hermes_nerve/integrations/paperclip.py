@@ -53,7 +53,9 @@ def detect_paperclip_context(
     """
     source = os.environ if env is None else env
     present = {key: _clean(source.get(key)) for key in _CONTEXT_KEYS}
-    if not any(present.values()):
+    # Base Paperclip identity variables exist on every heartbeat. TASK_ID is
+    # trigger-specific; without it this is not issue work for Nerve to supervise.
+    if not present["PAPERCLIP_TASK_ID"]:
         return None
     missing = [key for key, value in present.items() if not value]
     if missing:
