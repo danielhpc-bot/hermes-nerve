@@ -55,11 +55,15 @@ class PaperclipIssueAuthority:
             return HandoffResult(False, False, "verification failed")
 
         current = self.client.get_issue(self.execution.task_id)
+        if current.id != self.execution.task_id:
+            return HandoffResult(True, False, "Paperclip returned the wrong issue")
+        # Once review has begun, the builder may no longer own the checkout. That
+        # is success, not a stale-run failure; no further mutation is required.
+        if current.status in {"in_review", "done"}:
+            return HandoffResult(True, True, "already handed off")
         ownership_error = self._ownership_error(current)
         if ownership_error:
             return HandoffResult(True, False, ownership_error)
-        if current.status in {"in_review", "done"}:
-            return HandoffResult(True, True, "already handed off")
         if current.status != "in_progress":
             return HandoffResult(
                 True, False, f"unexpected Paperclip status {current.status!r}"
@@ -98,11 +102,13 @@ class PaperclipIssueAuthority:
                 reconciled = self.client.get_issue(self.execution.task_id)
             except Exception:
                 return HandoffResult(True, False, str(exc))
+            if reconciled.id != self.execution.task_id:
+                return HandoffResult(True, False, "Paperclip returned the wrong issue")
+            if reconciled.status in {"in_review", "done"}:
+                return HandoffResult(True, True, "reconciled after transport failure")
             ownership_error = self._ownership_error(reconciled)
             if ownership_error:
                 return HandoffResult(True, False, ownership_error)
-            if reconciled.status in {"in_review", "done"}:
-                return HandoffResult(True, True, "reconciled after transport failure")
             return HandoffResult(True, False, str(exc))
 
         ownership_error = self._ownership_error(updated)
