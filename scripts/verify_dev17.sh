@@ -4,7 +4,15 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
 python3 -m compileall -q .
-python3 scripts/verify_release.py
+
+# The structural verifier expects a clean Legacy registration surface. Never let
+# the operator's live ~/.hermes/nerve/profile.json change release verification.
+VERIFY_HOME=$(mktemp -d)
+(
+  trap 'rm -rf "$VERIFY_HOME"' EXIT
+  HERMES_HOME="$VERIFY_HOME" python3 scripts/verify_release.py
+)
+
 python3 scripts/verify_dev6_benchmark.py
 
 TMP=$(mktemp -d)
