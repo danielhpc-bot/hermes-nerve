@@ -7,6 +7,13 @@ DEST="$HOME/.hermes/profiles/$PROFILE/plugins/hermes-nerve"
 LEGACY="$HOME/.hermes/profiles/$PROFILE/plugins/hermes-jev"
 STAMP=$(date +%Y%m%dT%H%M%S)
 
+if ! hermes profile show "$PROFILE" >/dev/null 2>&1; then
+  echo "Error: Hermes profile '$PROFILE' does not exist." >&2
+  echo "Create it first, for example:" >&2
+  echo "  hermes profile create $PROFILE --clone-from default --description \"Paperclip Nerve builder\"" >&2
+  exit 2
+fi
+
 mkdir -p "$(dirname "$DEST")"
 if [ -e "$LEGACY" ]; then
   LEGACY_BACKUP="${LEGACY}.pre-nerve-${STAMP}"
